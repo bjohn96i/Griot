@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# griot — launch (or re-attach to) the Griot workstation.
+set -euo pipefail
+
+# Resolve symlinks (e.g. /usr/local/bin/griot) so HERE is the real repo root.
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+SESSION="griot"
+CENTER="griot-center"
+
+die() { echo "griot: $1" >&2; exit 1; }
+
+# --- dependency checks (spec: named, actionable, no stack traces) ---
+command -v tmux >/dev/null    || die "tmux missing — brew install tmux"
+command -v uv >/dev/null      || die "uv missing — https://docs.astral.sh/uv/"
+command -v glow >/dev/null    || die "glow missing — brew install glow"
+command -v claude >/dev/null  || die "claude missing — https://claude.com/claude-code"
+command -v icalBuddy >/dev/null || echo "griot: warning — icalBuddy missing (brew install ical-buddy); calendar will be empty" >&2
+
+# `griot restart` tears down both servers so the session rebuilds with
+# current code/config (a plain `griot` re-attaches to whatever is running,
+# which keeps showing pre-update panes).
+if [[ "${1:-}" == "restart" ]]; then
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+  tmux -L griot kill-server 2>/dev/null || true
+fi
+
+# Re-attach if already running.
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  echo "griot: re-attaching to running session (use 'griot restart' to rebuild after updates)" >&2
+  exec tmux attach -t "$SESSION"
+fi
+
+CFG_OUT="$(uv run --project "$HERE" python -c \
+  'from griot.config import load_config
+c = load_config()
+print(c.claude_default_dir)
+print(c.left_percent)
+print(c.right_percent)
+print(c.startup_prompt)' 2>/dev/null)" \
+  || die "could not read config — check ~/.config/griot/config.toml for invalid TOML (numbers only for latitude/longitude, no N/W suffixes)"
+CLAUDE_DIR="$(sed -n 1p <<<"$CFG_OUT")"
+LEFT_PCT="$(sed -n 2p <<<"$CFG_OUT")"
+RIGHT_PCT="$(sed -n 3p <<<"$CFG_OUT")"
+STARTUP="$(sed -n 4p <<<"$CFG_OUT")"
+
+# First center window runs Claude, optionally with a startup slash command
+# (e.g. /griot:brief) so Griot briefs the current state on open. $SHELL is
+# expanded now; the whole command is passed as one arg to the nested tmux.
+if [[ -n "$STARTUP" ]]; then
+  CENTER_CMD="claude $STARTUP; exec $SHELL"
+else
+  CENTER_CMD="claude; exec $SHELL"
+fi
+
+export PATH="$HERE/bin:$PATH"
+
+# Best-effort initial size (avoids apps starting at 80 cols); the real layout
+# is fixed authoritatively by the client-attached hook below, which reads the
+# window's ACTUAL width and resizes to absolute columns. Percentage splits at
+# build time are unreliable: a detached session is sized at tmux's 80-col
+# default, and the panes rescale unevenly when the client attaches (that is
+# why right 5% kept showing as ~21%).
+COLS="$(tput cols 2>/dev/null || echo 200)"
+ROWS="$(tput lines 2>/dev/null || echo 50)"
+
+# Outer session: 3 panes, no status bar, Vibranium borders.
+tmux new-session -d -s "$SESSION" -n main -x "$COLS" -y "$ROWS"
+tmux set -t "$SESSION" status off
+tmux set -t "$SESSION" mouse on
+tmux set -t "$SESSION" pane-border-style "fg=#1E3A5F"
+tmux set -t "$SESSION" pane-active-border-style "fg=#E3B341"
+tmux set-environment -t "$SESSION" PATH "$PATH"
+# Command palette (⌥x) and quick-capture (⌥c) — global popups, also bound in
+# the inner center.conf so they work from any pane.
+tmux bind-key -n M-x display-popup -E -w 70% -h 60% "$HERE/bin/griot-palette"
+tmux bind-key -n M-c display-popup -E -w 60% -h 30% "$HERE/bin/griot-capture"
+
+# Split into three side-by-side panes (0=left, 1=center, 2=right). Sizes here
+# don't matter — the client-attached hook resizes to the configured ratio
+# against the real window width once a client attaches (and on every re-attach).
+tmux split-window -h -t "$SESSION:main.0"
+tmux split-window -h -t "$SESSION:main.1"
+tmux set-hook -t "$SESSION" client-attached \
+  "run-shell -b '\"$HERE/bin/griot-resize\" $SESSION $LEFT_PCT $RIGHT_PCT'"
+
+# Left: tasks app.  Right: status app.
+tmux send-keys -t "$SESSION:main.0" "uv run --project '$HERE' griot-tasks" C-m
+tmux send-keys -t "$SESSION:main.2" "uv run --project '$HERE' griot-status" C-m
+
+# Center: nested tmux on its own socket with the tab-bar config.
+# The set-option is chained onto the SAME tmux invocation (via \;) so it is
+# guaranteed to run after the nested server/session exists — a separate,
+# later `tmux -L griot set-option ...` from this script would race the
+# send-keys, which only queues keystrokes and returns immediately. Chaining
+# after `new-session -A` is idempotent: on re-attach it just re-sets the
+# same value.
+tmux send-keys -t "$SESSION:main.1" \
+  "TMUX= tmux -L griot -f '$HERE/tmux/center.conf' new-session -A -s '$CENTER' -n griot -c '$CLAUDE_DIR' \"$CENTER_CMD\" \; set-option -t '$CENTER' @claude_dir '$CLAUDE_DIR'" C-m
+
+tmux select-pane -t "$SESSION:main.1"
+exec tmux attach -t "$SESSION"

@@ -1,0 +1,22 @@
+vault_path = "~/Documents/ObsidianVault"
+tasks_dir = "Notes/Tasks"
+claude_default_dir = "~/code"   # cwd for new Claude tabs
+repos_dir = "~/code"            # granted to task-loaded Claude sessions (c) via --add-dir
+startup_prompt = "/griot:brief"                 # run in the first center tab on open (empty = none)
+jira_base_url = "https://your-org.atlassian.net/browse"  # for J on bare ticket IDs
+redis_tunnel_port = 36379
+
+[layout]
+left_percent = 20    # tasks pane width
+right_percent = 16   # status pane width; center gets the rest
+
+[weather]
+latitude = 0.0    # set me — decimal degrees, N positive / S negative (e.g. 33.75522)
+longitude = 0.0   # set me — decimal degrees, E positive / W negative (e.g. -84.24582)
+
+# Command palette (⌥x) presets: label = shell command. You can also just type
+# any command in the palette; these are the fuzzy-pickable shortcuts.
+[commands]
+"restore tunnel" = "your-tunnel-cmd --up"
+# "tunnel status"  = "your-tunnel-cmd --status"
+# "reconnect vpn"  = "scutil --nc start 'Corp VPN'"

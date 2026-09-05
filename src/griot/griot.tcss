@@ -1,0 +1,89 @@
+Screen {
+    background: #000000;
+    color: #C7D3E8;
+}
+DataTable {
+    background: #000000;
+    color: #C7D3E8;
+}
+DataTable > .datatable--cursor {
+    background: #1E3A5F;
+    color: #F0C75E;
+}
+DataTable > .datatable--header {
+    background: #0D1526;
+    color: #E3B341;
+}
+.panel {
+    background: #0D1526;
+    border: round #1E3A5F;
+    color: #C7D3E8;
+    padding: 0 1;
+    margin: 0 0 1 0;
+}
+.panel-title {
+    color: #E3B341;
+    text-style: bold;
+}
+.stale {
+    color: #8FA3C7;
+}
+.status-err {
+    color: #E05561;
+}
+.status-ok {
+    color: #4EC97B;
+}
+
+TaskDetailScreen {
+    background: #000000;
+}
+.detail-title {
+    background: #0D1526;
+    padding: 0 1;
+    height: 1;
+}
+.detail-chips {
+    padding: 0 1;
+    height: 1;
+    margin: 1 0 0 0;
+}
+#detail-scroll {
+    background: #000000;
+    margin: 1 0 0 0;
+}
+#detail-body {
+    background: #000000;
+    color: #C7D3E8;
+    padding: 0 1;
+}
+Markdown {
+    background: #000000;
+}
+.detail-footer {
+    dock: bottom;
+    height: 1;
+    background: #0D1526;
+}
+
+#status-scroll {
+    background: #000000;
+    height: 1fr;
+}
+
+OptionList {
+    background: #000000;
+    border: none;
+    padding: 0;
+    height: 1fr;
+}
+OptionList > .option-list--option {
+    padding: 0 1;
+}
+OptionList > .option-list--option-highlighted {
+    background: #1E3A5F;
+}
+OptionList:focus > .option-list--option-highlighted {
+    background: #1E3A5F;
+    color: #F0C75E;
+}

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# griot-palette — fuzzy command runner (⌥x). Presets from config's [commands]
+# table plus free-form: pick a preset or type any command; it runs in a new
+# center tab (kept alive with `exec $SHELL` so long-lived processes like a
+# tunnel persist and stay watchable). Invoked from a tmux display-popup.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+CENTER="griot-center"
+
+# Presets as "label<TAB>command" lines, blank lines dropped.
+PRESETS="$(uv run --project "$HERE" python -c '
+from griot.config import load_config
+for label, cmd in load_config().commands.items():
+    print(f"{label}\t{cmd}")' 2>/dev/null | grep -v "^[[:space:]]*$" || true)"
+
+# --dump: print what fzf would receive (headless testing).
+if [[ "${1:-}" == "--dump" ]]; then
+  printf '%s\n' "$PRESETS"
+  exit 0
+fi
+
+command -v fzf >/dev/null || { echo "fzf not installed — brew install fzf"; sleep 2; exit 1; }
+
+sel="$(printf '%s\n' "$PRESETS" \
+  | fzf --print-query --with-nth=1 --delimiter=$'\t' \
+        --prompt='run > ' --height=100% --layout=reverse \
+        --header='pick a preset or type any command · enter to run' || true)"
+
+query="$(sed -n 1p <<<"$sel")"
+picked="$(sed -n 2p <<<"$sel")"
+
+if [[ -n "$picked" ]]; then
+  name="${picked%%$'\t'*}"
+  cmd="${picked#*$'\t'}"
+else
+  cmd="$query"
+  name="${query%% *}"
+fi
+
+[[ -z "${cmd// }" ]] && exit 0   # nothing entered
+
+exec tmux -L griot new-window -t "$CENTER" -n "${name:0:18}" "$cmd; exec $SHELL"

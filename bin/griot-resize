@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# griot-resize <session> <left_pct> <right_pct>
+# Set the outer pane widths to absolute columns from the window's ACTUAL width.
+# Run from the session's client-attached hook so it fires once the real
+# terminal size is known — percentage splits at build time are unreliable
+# because a detached session is sized at tmux's 80-col default and then
+# rescaled unevenly when the client attaches.
+set -euo pipefail
+
+SESSION="$1"; LEFT_PCT="$2"; RIGHT_PCT="$3"
+
+W="$(tmux display -pt "$SESSION:main" '#{window_width}' 2>/dev/null || echo 0)"
+[ "$W" -gt 20 ] 2>/dev/null || exit 0   # too narrow / not ready — leave as-is
+
+tmux resize-pane -t "$SESSION:main.0" -x "$(( W * LEFT_PCT / 100 ))"  2>/dev/null || true
+tmux resize-pane -t "$SESSION:main.2" -x "$(( W * RIGHT_PCT / 100 ))" 2>/dev/null || true
