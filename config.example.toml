@@ -20,3 +20,46 @@ longitude = 0.0   # set me — decimal degrees, E positive / W negative (e.g. -8
 "restore tunnel" = "your-tunnel-cmd --up"
 # "tunnel status"  = "your-tunnel-cmd --status"
 # "reconnect vpn"  = "scutil --nc start 'Corp VPN'"
+
+# Theme: vibranium-night (default) | vaporwave-mono | dataterm.
+# Each theme carries its own default heartbeat animation; [animation] overrides it.
+# dataterm is an amber screen in a khaki case with black seams, and the only theme
+# that asks for the hard-drive whir (see [sound]).
+# Warp users: `uv run griot-theme --warp --write` drops a matching theme into
+# ~/.warp/themes, then pick it in Warp settings. Fonts are a terminal setting;
+# Space Mono suits vaporwave-mono, Monaspace Krypton suits dataterm.
+[theme]
+name = "vibranium-night"
+# [theme.colors]          # optional per-token overrides, hex only
+# accent = "#FF71CE"      # tokens: bg panel chrome chrome_text border outline
+#                         #         select text muted accent accent_bright
+#                         #         secondary ok err
+# bg = pane background, panel = card fill (carries body text), chrome = filled
+# bars, chrome_text = text on those bars, border = seams between panes,
+# outline = card frames, select = current row.
+# Avoid mid-tones for bg and panel — they cannot carry a dim text tier.
+
+[animation]
+# style = "scope"         # beads | scope | bars | glyphs
+# speed = 0.12            # seconds per tick
+# height = 2              # rows (scope/bars/glyphs)
+# width = 0               # cells; 0 = fit the pane
+# scope:  wavelength = 12   amplitude = 1.0   trail = true
+# bars:   bar_width = 1     gap = 1           wavelength = 8   amplitude = 1.0
+# glyphs: glyph_set = "mixed"  (katakana | blocks | hex | mixed)
+#         mutation_rate = 0.08  packets = 2  packet_length = 5  seed = 0
+
+# The drive. Synthesized, not sampled; macOS only. `m` in the status pane mutes it
+# live. Only dataterm defaults these on — set them explicitly under another theme.
+# Gapless looping needs PyObjC (installed by default on macOS); without it the
+# afplay fallback re-launches at the loop point and you hear the seam.
+[sound]
+# enabled = true        # default false; nothing plays until you set this
+# volume = 0.15         # 0.0-1.0
+# whir = true           # ambient platter loop
+# seek = true           # head chatter on a status change
+# clicks = true         # lone actuator thunks: idle ticker + on vault writes
+# `m` in the status pane mutes; the state is a flag file, so both panes agree
+# and it survives a restart. The footer at the bottom of the pane shows it.
+# click_min = 4.0       # idle tick interval, randomised in [min, max] seconds
+# click_max = 20.0

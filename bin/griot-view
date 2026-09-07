@@ -3,7 +3,9 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STYLE="$HERE/styles/vibranium.json"
+STYLE="$HERE/generated/glow.json"
+# Rendered by the launcher; regenerate if missing (e.g. griot-view run standalone).
+[[ -f "$STYLE" ]] || uv run --project "$HERE" griot-theme --generate >/dev/null
 
 if [[ $# -lt 1 || ! -f "${1:-}" ]]; then
   echo "usage: griot-view <note-path>" >&2

@@ -1,6 +1,8 @@
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from griot.config import Config
 from griot.tasks.app import TasksApp
 from griot.status.app import StatusApp
@@ -517,3 +519,286 @@ async def test_J_na_opens_nothing(tmp_path):
     async with app.run_test() as pilot:
         await pilot.press("J")
     assert opened == []
+
+
+# --- themes and animations ---
+
+def _themed_cfg(tmp_path, name, animation=None, colors=None) -> Config:
+    base = _cfg(tmp_path)
+    return Config(**{**base.__dict__, "theme_name": name,
+                     "theme_colors": colors or {}, "animation": animation or {}})
+
+
+def _plain(widget) -> str:
+    """Rendered text of a Static (Textual 8 exposes it as .content)."""
+    c = widget.content
+    return getattr(c, "plain", str(c))
+
+
+async def test_status_app_activates_theme_and_css_variables(tmp_path):
+    from griot import theme
+    app = StatusApp(config=_themed_cfg(tmp_path, "dataterm"), fetchers=_status_fetchers())
+    try:
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1)
+            assert theme.ACTIVE == "dataterm"
+            assert app.get_css_variables()["accent"] == "#FFD07A"
+            # stylesheet variables resolved: the screen background is the theme bg.
+            # Dataterm is the one theme that is not on black — this is the lit
+            # amber screen, and the khaki #877254 stays in the chrome.
+            assert app.screen.styles.background.hex.upper() == "#140F08"
+            v = app.get_css_variables()
+            assert v["panel"] == "#1E1710"     # card fill, carries body text
+            assert v["chrome"] == "#877254"    # khaki bars
+            assert v["outline"] == "#877254"   # khaki card frames
+            assert v["border"] == "#000000"    # black seams between panes
+            assert v["select"] == "#877254"
+            heart = app.query_one("#beads")
+            assert heart.style_name == "glyphs"           # dataterm default
+            assert heart.cfg["glyph_set"] == "hex"
+            assert "NETWORK" in _plain(app.query_one("#network"))  # upper-cased title
+    finally:
+        theme.activate("vibranium-night")
+
+
+async def test_user_animation_overrides_theme_default(tmp_path):
+    from griot import theme
+    cfg = _themed_cfg(tmp_path, "vaporwave-mono",
+                      animation={"style": "bars", "height": 3, "speed": 0.05})
+    app = StatusApp(config=cfg, fetchers=_status_fetchers())
+    try:
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            heart = app.query_one("#beads")
+            assert heart.style_name == "bars" and heart.cfg["height"] == 3
+            plain = _plain(heart)
+            assert plain.count("\n") == 2                      # three rows
+            assert any(ch in "▁▂▃▄▅▆▇█" for ch in plain)
+    finally:
+        theme.activate("vibranium-night")
+
+
+async def test_every_animation_style_renders_without_error(tmp_path):
+    from griot import theme
+    for style in ("beads", "scope", "bars", "glyphs"):
+        app = StatusApp(config=_themed_cfg(tmp_path, "vibranium-night",
+                                           animation={"style": style, "speed": 0.02}),
+                        fetchers=_status_fetchers())
+        try:
+            async with app.run_test() as pilot:
+                await pilot.pause(0.15)
+                heart = app.query_one("#beads")
+                assert heart.tick > 1, style
+                assert _plain(heart).strip(), style
+                heart.excite()
+                assert heart.excited > 0
+        finally:
+            theme.activate("vibranium-night")
+
+
+def test_tasks_app_exposes_css_variables(tmp_path):
+    from griot import theme
+    cfg = _themed_cfg(tmp_path, "vaporwave-mono", colors={"accent": "#123456"})
+    app = TasksApp(config=cfg, tmux_runner=lambda cmd: None)
+    try:
+        assert app.get_css_variables()["accent"] == "#123456"
+        assert theme.ACCENT == "#123456"
+    finally:
+        theme.activate("vibranium-night")
+
+
+async def test_mounting_the_status_pane_never_starts_audio_by_itself(tmp_path):
+    """Sound is opt-in. Dataterm asks for it; `[sound] enabled` still gates it."""
+    from griot import sound, theme
+    app = StatusApp(config=_themed_cfg(tmp_path, "dataterm"), fetchers=_status_fetchers())
+    try:
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1)
+            assert app.sound_cfg["whir"] is True      # the theme wants the drive
+            assert app.sound_cfg["enabled"] is False  # but nobody turned it on
+            eng = sound.engine()
+            assert eng is not None and eng.running is False
+            app.query_one("#beads").excite()          # the seek hook, unarmed
+            await pilot.press("m")                    # mute key must not explode
+    finally:
+        app.exit()
+        sound.shutdown()
+        theme.activate("vibranium-night")   # module-level palette is global
+    assert sound.engine() is None
+
+
+@pytest.mark.parametrize("app_factory", ["status", "tasks"])
+async def test_css_driven_surfaces_follow_the_configured_theme(tmp_path, app_factory):
+    """Regression: Textual freezes $bg/$panel/$border during App.__init__.
+
+    Both apps used to call super().__init__() before theme.activate_from_config(),
+    so every stylesheet colour rendered in whatever theme happened to be active —
+    always the default. Imperative theme.ACCENT styling hid it.
+    """
+    from griot import theme
+    cfg = _themed_cfg(tmp_path, "dataterm")
+    app = StatusApp(config=cfg, fetchers=_status_fetchers()) if app_factory == "status" \
+        else TasksApp(config=cfg, tmux_runner=lambda a: None, opener=lambda u: None)
+    try:
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1)
+            assert app.screen.styles.background.hex.upper() == "#140F08", \
+                "screen must be the amber phosphor, not the default theme's black"
+            panels = app.query(".panel")
+            if panels:
+                first = panels.first()
+                assert first.styles.background.hex.upper() == "#1E1710", \
+                    "card fill must be the lifted brown, not vibranium navy"
+                assert first.styles.border_top[1].hex.upper() == "#877254", \
+                    "card frame must be the khaki case, not the black seam colour"
+    finally:
+        app.exit()
+        theme.activate("vibranium-night")
+
+
+async def test_vault_writes_click_the_drive(tmp_path, monkeypatch):
+    """`t` and `p` both write to disk, so both should be audible.
+
+    The tasks pane is its own process in the real layout, so it installs its
+    own engine in on_mount — this drives that path rather than pre-installing.
+    """
+    from griot import sound
+
+    class Recorder:
+        supports_loop = True
+
+        def __init__(self):
+            self.played = []
+
+        def available(self):
+            return True
+
+        def play(self, path, volume, loop=False):
+            self.played.append(path.name)
+            return type("H", (), {"poll": lambda s: 0, "stop": lambda s: None})()
+
+        def kill(self, handle):
+            pass
+
+    rec = Recorder()
+    monkeypatch.setattr(sound, "best_player", lambda: rec)
+    monkeypatch.setattr(sound, "MUTE_FLAG", tmp_path / "muted")
+    monkeypatch.setattr(sound, "ensure_assets", lambda *a, **k: {
+        "whir": tmp_path / "w.wav", "seek": tmp_path / "s.wav",
+        "clicks": [tmp_path / "c1.wav"]})
+
+    cfg = _cfg(tmp_path)
+    cfg = Config(**{**cfg.__dict__, "sound": {"enabled": True, "clicks": True}})
+    _task(tmp_path / "Tasks", "Alpha.md")
+    app = TasksApp(config=cfg, tmux_runner=lambda cmd: None)
+    try:
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1)
+            eng = sound.engine()
+            assert eng is not None, "the tasks pane must install its own engine"
+            assert eng.cfg["whir"] is False and eng.cfg["seek"] is False, \
+                "ambient sound belongs to the status pane only"
+            assert eng._ticks is False, "only one pane owns the idle ticker"
+            await pilot.press("t")
+            assert rec.played == ["c1.wav"], rec.played
+            eng._last_click = 0.0          # step past the debounce deliberately
+            await pilot.press("p")
+            assert rec.played == ["c1.wav", "c1.wav"], rec.played
+    finally:
+        app.exit()
+        sound.shutdown()
+    assert (tmp_path / "Tasks" / "Alpha.md").read_text().count("Last Progress") == 1
+
+
+# ------------------------------------------------------------- drive footer ----
+
+def test_hint_line_pads_the_state_to_the_right_edge():
+    from griot.status.app import hint_line
+    line = hint_line(28, enabled=True, muted=False)
+    assert len(line) == 28
+    assert line.startswith("m mute")
+    assert line.endswith("DRIVE ON")
+    assert "  " in line, "the gap between key and state is padding, not a tab"
+
+
+def test_hint_line_names_all_three_states():
+    from griot.status.app import hint_line
+    assert hint_line(28, enabled=True, muted=False).endswith("DRIVE ON")
+    assert hint_line(28, enabled=True, muted=True).endswith("DRIVE MUTED")
+    off = hint_line(28, enabled=False, muted=False)
+    assert off.endswith("SOUND OFF")
+    assert "m mute" not in off, "no key hint for something that cannot be muted"
+
+
+def test_hint_line_drops_the_key_before_it_truncates_the_state():
+    from griot.status.app import hint_line
+    wide = hint_line(20, enabled=True, muted=True)
+    assert len(wide) == 20 and wide.endswith("DRIVE MUTED")
+    tight = hint_line(14, enabled=True, muted=True)
+    assert "m mute" not in tight, "state survives, key goes first"
+    assert tight.endswith("DRIVE MUTED")
+    assert hint_line(6, enabled=True, muted=True) == "DRIVE "   # hard truncation
+    assert hint_line(0, enabled=True, muted=False) == ""
+
+
+async def test_footer_is_docked_at_the_bottom_and_reports_sound_off(tmp_path):
+    """Default config has no [sound], so the pane says so rather than lying."""
+    from griot import theme
+    from griot.status.app import DriveFooter
+    app = StatusApp(config=_themed_cfg(tmp_path, "dataterm"), fetchers=_status_fetchers())
+    try:
+        async with app.run_test(size=(34, 40)) as pilot:
+            await pilot.pause(0.1)
+            footer = app.query_one("#drive-footer", DriveFooter)
+            assert "SOUND OFF" in _plain(footer)
+            assert footer.styles.dock == "bottom"
+            assert footer.region.y == app.screen.size.height - 1, "not at the bottom"
+            # chrome bar with chrome's own foreground, not the amber body text
+            assert footer.styles.background.hex.upper() == "#877254"
+            assert footer.styles.color.hex.upper() == "#000000"
+            await pilot.press("m")
+            assert "SOUND OFF" in _plain(footer), "m must be inert when sound is off"
+    finally:
+        app.exit()
+        theme.activate("vibranium-night")
+
+
+async def test_footer_flips_between_on_and_muted(tmp_path, monkeypatch):
+    from griot import sound, theme
+    from griot.status.app import DriveFooter
+    monkeypatch.setattr(sound, "MUTE_FLAG", tmp_path / "muted")
+    monkeypatch.setattr(sound, "best_player", lambda: _SilentPlayer())
+    monkeypatch.setattr(sound, "ensure_assets", lambda *a, **k: {
+        "whir": tmp_path / "w.wav", "seek": tmp_path / "s.wav",
+        "clicks": [tmp_path / "c1.wav"]})
+    cfg = _themed_cfg(tmp_path, "dataterm")
+    cfg = Config(**{**cfg.__dict__, "sound": {"enabled": True, "clicks": False}})
+    app = StatusApp(config=cfg, fetchers=_status_fetchers())
+    try:
+        async with app.run_test(size=(34, 40)) as pilot:
+            await pilot.pause(0.1)
+            footer = app.query_one("#drive-footer", DriveFooter)
+            assert "DRIVE ON" in _plain(footer)
+            await pilot.press("m")
+            assert "DRIVE MUTED" in _plain(footer)
+            assert (tmp_path / "muted").exists(), "mute must be on disk for both panes"
+            await pilot.press("m")
+            assert "DRIVE ON" in _plain(footer)
+            assert not (tmp_path / "muted").exists()
+    finally:
+        app.exit()
+        sound.shutdown()
+        theme.activate("vibranium-night")
+
+
+class _SilentPlayer:
+    supports_loop = True
+
+    def available(self):
+        return True
+
+    def play(self, path, volume, loop=False):
+        return type("H", (), {"poll": lambda s: None, "stop": lambda s: None})()
+
+    def kill(self, handle):
+        pass

@@ -1,4 +1,4 @@
-"""griot-status: the right pane. Beads, clock, weather, calendar, statuses, spend."""
+"""griot-status: the right pane. Heartbeat animation, clock, weather, calendar, statuses, spend."""
 from datetime import datetime
 from typing import Callable
 
@@ -8,10 +8,11 @@ from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.widgets import Static
 
-from griot import theme
+from griot import sound, theme
 from griot.config import Config, load_config
 from griot.status import sources
-from griot.status.beads import Beads
+from griot.status import animation as anim
+from griot.status.animation import Animation
 
 
 class PolledStatus(Static):
@@ -63,7 +64,7 @@ class ClockLine(Static):
     def _tick(self) -> None:
         now = datetime.now()
         self.update(Text(now.strftime("%a %b %d  %H:%M:%S"),
-                         style=theme.GOLD_BRIGHT, justify="center"))
+                         style=theme.ACCENT_BRIGHT, justify="center"))
 
 
 class CalendarPanel(Static):
@@ -104,7 +105,7 @@ class CalendarPanel(Static):
             return
         text = Text()
         for e in events[:5]:
-            text.append("▸ ", style=theme.GOLD)
+            text.append("▸ ", style=theme.ACCENT)
             text.append(e[:34] + "\n", style=theme.TEXT)
         self.update(text)
 
@@ -118,9 +119,10 @@ def _htok(n: int) -> str:
     return sources._humanize_tokens(int(n))
 
 
-def _row(t: Text, label: str, value: str, value_style: str = theme.TEXT,
+def _row(t: Text, label: str, value: str, value_style: str | None = None,
          last: bool = False) -> None:
     """Append one stacked ' label   value' line (label padded for alignment)."""
+    value_style = value_style or theme.TEXT
     t.append(f" {label:<8}", style=theme.MUTED)
     t.append(value + ("" if last else "\n"), style=value_style)
 
@@ -158,7 +160,7 @@ class BatteryPanel(_PanelBase):
     def _apply(self, d: dict) -> None:
         if not d or not d.get("ok"):
             if self.last is None:
-                self.update(Text.assemble(("⚡ BATTERY\n", f"bold {theme.GOLD}"),
+                self.update(Text.assemble((theme.title("⚡ BATTERY") + "\n", f"bold {theme.ACCENT}"),
                                           (" ?", theme.MUTED)))
             return
         self.last = d
@@ -169,7 +171,7 @@ class BatteryPanel(_PanelBase):
         else:
             source = "battery"
         t = Text()
-        t.append("⚡ BATTERY\n", style=f"bold {theme.GOLD}")
+        t.append(theme.title("⚡ BATTERY") + "\n", style=f"bold {theme.ACCENT}")
         _row(t, "charge", f"{d['pct']}%",
              value_style=theme.ERR if d["pct"] <= 10 else theme.TEXT)
         _row(t, "source", source)
@@ -196,7 +198,7 @@ class NetworkPanel(_PanelBase):
     def _apply(self, d: dict) -> None:
         if not d or not d.get("ok"):
             if self.last is None:
-                self.update(Text.assemble(("⧉ NETWORK\n", f"bold {theme.GOLD}"),
+                self.update(Text.assemble((theme.title("⧉ NETWORK") + "\n", f"bold {theme.ACCENT}"),
                                           (" ?", theme.MUTED)))
             return
         self.last = d
@@ -215,7 +217,7 @@ class NetworkPanel(_PanelBase):
         self._prev = cur
 
         t = Text()
-        t.append("⧉ NETWORK\n", style=f"bold {theme.GOLD}")
+        t.append(theme.title("⧉ NETWORK") + "\n", style=f"bold {theme.ACCENT}")
         _row(t, "ip", d["ip"] or "—")
         _row(t, "wifi", wifi.text if wifi.ok else "off",
              value_style=theme.OK if wifi.ok else theme.MUTED)
@@ -224,14 +226,14 @@ class NetworkPanel(_PanelBase):
         t.append(" ports\n", style=theme.MUTED)
         if d["ports"]:
             for p in d["ports"]:
-                t.append(f"  :{p['port']:<6}", style=theme.GOLD)
+                t.append(f"  :{p['port']:<6}", style=theme.ACCENT)
                 t.append(f"{p['proc'][:14]}\n", style=theme.TEXT)
         else:
             t.append("  none\n", style=theme.MUTED)
         t.append(" tunnels\n", style=theme.MUTED)
         if d["tunnels"]:
             for tn in d["tunnels"]:
-                t.append(f"  :{tn['port']:<6}", style=theme.GOLD_BRIGHT)
+                t.append(f"  :{tn['port']:<6}", style=theme.ACCENT_BRIGHT)
                 t.append("ssh", style=theme.MUTED)
                 t.append("\n")
         else:
@@ -246,12 +248,12 @@ class UsagePanel(_PanelBase):
     def _apply(self, d: dict | None) -> None:
         if not d:
             if self.last is None:
-                self.update(Text.assemble(("Σ CLAUDE (mo)\n", f"bold {theme.GOLD}"),
+                self.update(Text.assemble((theme.title("Σ CLAUDE (mo)") + "\n", f"bold {theme.ACCENT}"),
                                           (" ?", theme.MUTED)))
             return
         self.last = d
         t = Text()
-        t.append("Σ CLAUDE (mo)\n", style=f"bold {theme.GOLD}")
+        t.append(theme.title("Σ CLAUDE (mo)") + "\n", style=f"bold {theme.ACCENT}")
         _row(t, "total", _htok(d["total"]))
         _row(t, "output", _htok(d["output"]), value_style=theme.MUTED)
         _row(t, "input", _htok(d["input"]), value_style=theme.MUTED)
@@ -260,14 +262,61 @@ class UsagePanel(_PanelBase):
         self.update(t)
 
 
+FOOTER_KEY = "m mute"
+
+
+def hint_line(width: int, enabled: bool, muted: bool) -> str:
+    """Key hint left, state right-aligned, padded to `width`.
+
+    Degrades by dropping the key first: you can guess a keybinding, but you
+    cannot guess whether the drive is off, muted, or just idle between ticks.
+    """
+    if width <= 0:
+        return ""
+    state = "SOUND OFF" if not enabled else ("DRIVE MUTED" if muted else "DRIVE ON")
+    key = FOOTER_KEY if enabled else ""
+    if len(state) >= width:
+        return state[:width]
+    if key and len(key) + 2 + len(state) > width:
+        key = ""
+    return f"{key}{' ' * (width - len(key) - len(state))}{state}"
+
+
+class DriveFooter(Static):
+    """The docked key-hint bar. Renders from the shared mute flag, not a local
+    bool, so it still tells the truth if the other pane changed it."""
+
+    def __init__(self, enabled: bool, **kwargs) -> None:
+        super().__init__("", classes="pane-footer", **kwargs)
+        self.enabled = enabled
+
+    def on_mount(self) -> None:
+        self.refresh_hint()
+
+    def on_resize(self) -> None:
+        self.refresh_hint()
+
+    def refresh_hint(self) -> None:
+        self.update(hint_line(self.size.width, self.enabled, sound.muted()))
+
+
 class StatusApp(App):
     CSS_PATH = theme.TCSS_PATH
+    BINDINGS = [("m", "mute", "Mute the drive")]
 
     def __init__(self, config: Config | None = None,
                  fetchers: dict[str, Callable] | None = None,
                  notifier: Callable[[str, str], None] | None = None) -> None:
+        # The palette must be live BEFORE App.__init__: that is where Textual
+        # reads CSS_PATH and freezes $bg/$panel/$border through
+        # get_css_variables(). Activating afterwards leaves every CSS-driven
+        # surface painted in the default theme.
+        cfg = config or load_config()
+        theme.activate_from_config(cfg)
         super().__init__()
-        self.config = config or load_config()
+        self.config = cfg
+        self.animation_cfg = anim.resolve(theme.default_animation(), self.config.animation)
+        self.sound_cfg = sound.resolve(theme.default_sound(), self.config.sound)
         self.notifier = notifier or sources.notify
         f = fetchers or {}
         self.fetchers = {
@@ -279,9 +328,26 @@ class StatusApp(App):
             "calendar": f.get("calendar", sources.calendar_events),
         }
 
+    def on_mount(self) -> None:
+        # The whir belongs to this pane only — the tasks pane must not start
+        # a second one. Assets are synthesized on the engine's own thread.
+        sound.install(self.sound_cfg)
+
+    def on_unmount(self) -> None:
+        sound.shutdown()
+
+    def action_mute(self) -> None:
+        if not self.sound_cfg["enabled"]:
+            return      # nothing to mute; the footer already says SOUND OFF
+        sound.toggle_mute()
+        self.query_one("#drive-footer", DriveFooter).refresh_hint()
+
+    def get_css_variables(self) -> dict[str, str]:
+        return {**super().get_css_variables(), **theme.css_variables()}
+
     def compose(self) -> ComposeResult:
-        yield Static(" GRIOT", classes="panel-title")
-        yield Beads(id="beads")
+        yield Static(" GRIOT", id="griot-title", classes="panel-title")
+        yield Animation(self.animation_cfg, id="beads")
         yield ClockLine(id="clock")
         with VerticalScroll(id="status-scroll"):
             yield PolledStatus("☀", self.fetchers["weather"], 900.0, id="weather")
@@ -290,9 +356,10 @@ class StatusApp(App):
             yield NetworkPanel(self.fetchers["network"],
                                redis_port=self.config.redis_tunnel_port, id="network")
             yield UsagePanel(self.fetchers["usage"], id="usage")
+        yield DriveFooter(bool(self.sound_cfg["enabled"]), id="drive-footer")
 
     def on_polled_status_changed(self, message: PolledStatus.Changed) -> None:
-        self.query_one("#beads", Beads).excite()
+        self.query_one("#beads", Animation).excite()
 
 
 def main() -> None:

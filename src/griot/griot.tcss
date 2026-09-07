@@ -1,45 +1,55 @@
 Screen {
-    background: #000000;
-    color: #C7D3E8;
+    background: $bg;
+    color: $text;
 }
 DataTable {
-    background: #000000;
-    color: #C7D3E8;
+    background: $bg;
+    color: $text;
 }
 DataTable > .datatable--cursor {
-    background: #1E3A5F;
-    color: #F0C75E;
+    background: $select;
+    color: $accent_bright;
 }
 DataTable > .datatable--header {
-    background: #0D1526;
-    color: #E3B341;
+    background: $panel;
+    color: $accent;
 }
 .panel {
-    background: #0D1526;
-    border: round #1E3A5F;
-    color: #C7D3E8;
+    background: $panel;
+    border: round $outline;
+    color: $text;
     padding: 0 1;
     margin: 0 0 1 0;
 }
 .panel-title {
-    color: #E3B341;
+    background: $chrome;
+    color: $accent;
     text-style: bold;
 }
+
+/* Docked key hints. Lives on chrome, so it needs chrome's foreground. */
+.pane-footer {
+    dock: bottom;
+    height: 1;
+    background: $chrome;
+    color: $chrome_text;
+}
 .stale {
-    color: #8FA3C7;
+    color: $muted;
 }
 .status-err {
-    color: #E05561;
+    color: $err;
 }
 .status-ok {
-    color: #4EC97B;
+    color: $ok;
 }
 
 TaskDetailScreen {
-    background: #000000;
+    background: $bg;
 }
 .detail-title {
-    background: #0D1526;
+    background: $chrome;
+    color: $chrome_text;
     padding: 0 1;
     height: 1;
 }
@@ -49,30 +59,31 @@ TaskDetailScreen {
     margin: 1 0 0 0;
 }
 #detail-scroll {
-    background: #000000;
+    background: $bg;
     margin: 1 0 0 0;
 }
 #detail-body {
-    background: #000000;
-    color: #C7D3E8;
+    background: $bg;
+    color: $text;
     padding: 0 1;
 }
 Markdown {
-    background: #000000;
+    background: $bg;
 }
 .detail-footer {
     dock: bottom;
     height: 1;
-    background: #0D1526;
+    background: $chrome;
+    color: $chrome_text;
 }
 
 #status-scroll {
-    background: #000000;
+    background: $bg;
     height: 1fr;
 }
 
 OptionList {
-    background: #000000;
+    background: $bg;
     border: none;
     padding: 0;
     height: 1fr;
@@ -81,9 +92,9 @@ OptionList > .option-list--option {
     padding: 0 1;
 }
 OptionList > .option-list--option-highlighted {
-    background: #1E3A5F;
+    background: $select;
 }
 OptionList:focus > .option-list--option-highlighted {
-    background: #1E3A5F;
-    color: #F0C75E;
+    background: $select;
+    color: $accent_bright;
 }

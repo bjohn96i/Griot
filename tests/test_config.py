@@ -73,3 +73,29 @@ def test_commands_parsed(tmp_path):
 def test_jira_base_url_default(tmp_path):
     assert load_config(tmp_path / "nope.toml").jira_base_url == \
         "https://your-org.atlassian.net/browse"
+
+
+def test_theme_defaults(tmp_path):
+    cfg = load_config(tmp_path / "nope.toml")
+    assert cfg.theme_name == "vibranium-night"
+    assert cfg.theme_colors == {}
+    assert cfg.animation == {}
+
+
+def test_theme_and_animation_sections(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text(
+        "[theme]\n"
+        'name = "dataterm"\n'
+        "[theme.colors]\n"
+        'accent = "#ABCDEF"\n'
+        "[animation]\n"
+        'style = "scope"\n'
+        "speed = 0.08\n"
+        "height = 2\n"
+        "wavelength = 12\n"
+    )
+    cfg = load_config(p)
+    assert cfg.theme_name == "dataterm"
+    assert cfg.theme_colors == {"accent": "#ABCDEF"}
+    assert cfg.animation == {"style": "scope", "speed": 0.08, "height": 2, "wavelength": 12}

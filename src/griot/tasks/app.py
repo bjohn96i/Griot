@@ -9,7 +9,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
-from griot import theme
+from griot import sound, theme
 from griot.config import Config, load_config
 from griot.tasks.heat import heat, heat_bar, is_do_or_die, mismatch
 from griot.tasks.model import TaskNote
@@ -66,13 +66,26 @@ class TasksApp(App):
         tmux_runner: Callable[[list[str]], None] | None = None,
         opener: Callable[[str], None] | None = None,
     ) -> None:
+        # The palette must be live BEFORE App.__init__: that is where Textual
+        # reads CSS_PATH and freezes $bg/$panel/$border through
+        # get_css_variables(). Activating afterwards leaves every CSS-driven
+        # surface painted in the default theme.
+        cfg = config or load_config()
+        theme.activate_from_config(cfg)
         super().__init__()
-        self.config = config or load_config()
+        self.config = cfg
+        self.sound_cfg = sound.resolve(theme.default_sound(), self.config.sound)
         self.tmux = tmux_runner or _default_tmux_runner
         self.opener = opener or _default_opener
         self.notes: list[TaskNote] = []
         self.filter_idx = 0
         self._sig: tuple = ()
+
+    def get_css_variables(self) -> dict[str, str]:
+        return {**super().get_css_variables(), **theme.css_variables()}
+
+    def on_unmount(self) -> None:
+        sound.shutdown()
 
     def compose(self) -> ComposeResult:
         yield Static(id="tasks-header", classes="panel-title")
@@ -80,6 +93,12 @@ class TasksApp(App):
         yield Static(id="footer-hint")
 
     def on_mount(self) -> None:
+        # This pane is a separate process from the status pane (bin/griot
+        # send-keys into two tmux panes), so it needs its own engine or
+        # sound.click() on a vault write is a no-op. Ambient sound stays with
+        # the status pane: no whir, no seek, and ticker=False so the idle tick
+        # is not fired twice.
+        sound.install({**self.sound_cfg, "whir": False, "seek": False}, ticker=False)
         # Hold direct references: query_one() resolves against the ACTIVE
         # screen, so timer-driven rescans would fail while the detail
         # overlay is pushed.
@@ -101,9 +120,9 @@ class TasksApp(App):
     def _heat_style(h: float) -> str:
         """Bar brightness fades with the heat itself."""
         if h > 0.6:
-            return theme.GOLD_BRIGHT
+            return theme.ACCENT_BRIGHT
         if h > 0.25:
-            return theme.GOLD
+            return theme.ACCENT
         if h > 0.05:
             return theme.MUTED
         return theme.BORDER
@@ -111,7 +130,7 @@ class TasksApp(App):
     @staticmethod
     def _priority_style(priority: int) -> str:
         if priority <= 2:
-            return f"bold {theme.GOLD_BRIGHT}"
+            return f"bold {theme.ACCENT_BRIGHT}"
         if priority == 3:
             return theme.TEXT
         return theme.MUTED
@@ -127,7 +146,7 @@ class TasksApp(App):
         h = heat(n.progress_date, today)
         mark = mismatch(n.priority, h)
         glyph, gstyle = {
-            "neglected": ("⚠ ", f"bold {theme.GOLD_BRIGHT}"),
+            "neglected": ("⚠ ", f"bold {theme.ACCENT_BRIGHT}"),
             "distraction": ("≈ ", theme.MUTED),
         }.get(mark, ("  ", theme.TEXT))
         days = (today - n.progress_date).days if n.progress_date else None
@@ -147,7 +166,7 @@ class TasksApp(App):
     @staticmethod
     def _header_line(status: str) -> Text:
         rule = "─" * max(0, 20 - len(status))
-        return Text(f"── {status} {rule}", style=f"bold {theme.GOLD}")
+        return Text(f"── {status} {rule}", style=f"bold {theme.ACCENT}")
 
     def _rescan(self) -> None:
         today = date.today()
@@ -176,8 +195,8 @@ class TasksApp(App):
 
         dod = sum(1 for n in self.notes if is_do_or_die(n, today))
         header = Text.assemble(
-            (" ◆ TASKS ", f"bold {theme.GOLD}"),
-            (f"{filter_label} ", theme.GOLD_BRIGHT),
+            (" ◆ TASKS ", f"bold {theme.ACCENT}"),
+            (f"{filter_label} ", theme.ACCENT_BRIGHT),
             (f"{len(self.notes)}", theme.MUTED),
         )
         if dod:
@@ -272,11 +291,13 @@ class TasksApp(App):
     def touch_note(self, note: TaskNote) -> None:
         if not note.parse_error:
             touch(note.path, date.today())
+            sound.click()      # the drive clicks when the disk is actually written
             self._rescan()
 
     def cycle_note_priority(self, note: TaskNote) -> None:
         if not note.parse_error:
             cycle_priority(note.path, note.priority)
+            sound.click()
             self._rescan()
 
     def open_jira(self, note: TaskNote) -> None:

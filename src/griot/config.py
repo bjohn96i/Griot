@@ -1,6 +1,6 @@
 """Load ~/.config/griot/config.toml with spec defaults."""
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "griot" / "config.toml"
@@ -17,6 +17,7 @@ DEFAULTS = {
     "longitude": 0.0,
     "left_percent": 20,
     "right_percent": 16,
+    "theme_name": "vibranium-night",
 }
 
 
@@ -34,6 +35,10 @@ class Config:
     longitude: float
     left_percent: int
     right_percent: int
+    theme_name: str = "vibranium-night"
+    theme_colors: dict[str, str] = field(default_factory=dict)
+    animation: dict[str, object] = field(default_factory=dict)
+    sound: dict[str, object] = field(default_factory=dict)
 
     @property
     def tasks_path(self) -> Path:
@@ -51,6 +56,10 @@ def load_config(path: Path | None = None) -> Config:
     weather = raw.get("weather", {})
     layout = raw.get("layout", {})
     commands = {str(k): str(v) for k, v in raw.get("commands", {}).items()}
+    theme_raw = raw.get("theme", {})
+    theme_colors = {str(k): str(v) for k, v in theme_raw.get("colors", {}).items()}
+    animation = dict(raw.get("animation", {}))
+    sound = dict(raw.get("sound", {}))
     merged = {**DEFAULTS, **{k: v for k, v in raw.items() if k in DEFAULTS}}
     return Config(
         vault_path=Path(str(merged["vault_path"])).expanduser(),
@@ -65,4 +74,8 @@ def load_config(path: Path | None = None) -> Config:
         longitude=float(weather.get("longitude", DEFAULTS["longitude"])),
         left_percent=int(layout.get("left_percent", DEFAULTS["left_percent"])),
         right_percent=int(layout.get("right_percent", DEFAULTS["right_percent"])),
+        theme_name=str(theme_raw.get("name", DEFAULTS["theme_name"])),
+        theme_colors=theme_colors,
+        animation=animation,
+        sound=sound,
     )
