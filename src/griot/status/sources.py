@@ -161,8 +161,18 @@ def parse_icalbuddy(out: str) -> list[str]:
     ]
 
 
+_DAY_MINUTES = 24 * 60
+_HALF_DAY_MINUTES = _DAY_MINUTES // 2
+
+
 def next_event_minutes(events: list[str], now: datetime) -> int | None:
-    """Minutes until the first upcoming HH:MM-prefixed event today, else None."""
+    """Minutes until the first upcoming HH:MM-prefixed event, else None.
+
+    An HH:MM with no date is ambiguous, so it resolves to whichever day puts it
+    nearest to `now` — at 23:58 a 00:01 standup is three minutes away, not 1437
+    minutes into the past. Pinning it to today made the pane go quiet for the
+    last quarter-hour of every day.
+    """
     best: int | None = None
     for e in events:
         m = re.match(r"(\d{2}):(\d{2})", e)
@@ -171,6 +181,10 @@ def next_event_minutes(events: list[str], now: datetime) -> int | None:
         start = now.replace(hour=int(m.group(1)), minute=int(m.group(2)),
                             second=0, microsecond=0)
         delta = int((start - now).total_seconds() // 60)
+        if delta < -_HALF_DAY_MINUTES:
+            delta += _DAY_MINUTES        # long past on the clock: it is tomorrow's
+        elif delta > _HALF_DAY_MINUTES:
+            delta -= _DAY_MINUTES        # far ahead: it was last night's, and is gone
         if delta >= 0 and (best is None or delta < best):
             best = delta
     return best

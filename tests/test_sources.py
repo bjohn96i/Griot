@@ -173,6 +173,41 @@ def test_next_event_minutes():
     assert next_event_minutes([], now) is None
 
 
+def test_next_event_minutes_reads_past_midnight():
+    """Regression: a bare HH:MM was always pinned to today.
+
+    At 23:58 a 00:01 standup landed 1437 minutes in the *past* and was
+    discarded, so for the last quarter-hour of every day the beads never
+    quickened and no notification fired.
+    """
+    from datetime import datetime
+
+    from griot.status.sources import next_event_minutes
+
+    late = datetime(2026, 9, 6, 23, 58)
+    assert next_event_minutes(["00:01 standup"], late) == 3
+    assert next_event_minutes(["00:13 - 00:45 deploy window"], late) == 15
+    # tonight still beats tomorrow morning
+    assert next_event_minutes(["23:59 last call", "00:30 standup"], late) == 1
+    # and something that genuinely just started is still gone
+    assert next_event_minutes(["23:00 already running"], late) is None
+
+
+def test_next_event_minutes_takes_the_nearest_reading_of_a_bare_clock_time():
+    """HH:MM with no date is ambiguous; resolve it to whichever day is closer."""
+    from datetime import datetime
+
+    from griot.status.sources import next_event_minutes
+
+    # just after midnight, a 23:59 entry is last night's, not tonight's
+    early = datetime(2026, 9, 7, 0, 2)
+    assert next_event_minutes(["23:59 wrapped up"], early) is None
+    assert next_event_minutes(["00:30 standup"], early) == 28
+    # exactly twelve hours out stays in the future rather than flipping
+    noonish = datetime(2026, 9, 7, 9, 0)
+    assert next_event_minutes(["21:00 oncall handoff"], noonish) == 720
+
+
 def test_redis_tunnel_down_returns_status():
     # port 1 is never listening; must not raise
     s = redis_tunnel(port=1)
