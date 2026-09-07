@@ -3,7 +3,7 @@
 A three-pane tmux workstation over an Obsidian vault. The left pane tracks vault tasks
 with a heat/priority tracker, the center pane hosts tabbed Claude Code sessions (and
 rendered vault notes), and the right pane is a live status stack with a signature
-kimoyo-bead animation.
+heartbeat animation.
 
 > **Adopting this?** The center and right panes are self-contained, but **the left
 > pane is coupled to a specific vault layout and frontmatter schema** (it reads *and
@@ -36,9 +36,12 @@ The right pane's lower half is three sections (scrollable):
   cost, and `ccusage`'s dollar figure is list-price × tokens (wildly higher than a
   subscription's actual spend), so this widget reports volume instead.
 
-The theme is "Vibranium Night": a true-black background (so the panes blend into your
-terminal and Claude Code) with dark-navy panels and vibranium-gold accents. Pane widths
-are configurable under `[layout]` in the config (defaults 20 / 64 / 16).
+Three themes ship. Two sit on true black so the panes blend into your terminal and
+Claude Code: **Vibranium Night** (default; dark-navy panels, gold accents) and
+**Vaporwave Mono** (grayscale with a hot-pink accent). **Dataterm** deliberately does
+not — it is an amber-phosphor screen set in beige case plastic, with black seams
+between the panes, and it can whir like a hard drive. See *Themes & animation* below.
+Pane widths are configurable under `[layout]` in the config (defaults 20 / 64 / 16).
 
 ## Requirements
 
@@ -183,7 +186,7 @@ re-attaches to the already-running session, which still shows the old build.
 - `griot` builds a three-pane tmux session (tasks · Claude tabs · status), or re-attaches if it's already running; `griot restart` tears down and rebuilds after code/config changes.
 - Detach/reattach survives closing the terminal (`ctrl-b d` to detach).
 - Pane widths configurable (`[layout]`), and reliably applied at the real terminal size on every attach.
-- "Vibranium Night" theme (true-black background) shared across the Textual apps, the tmux tab bar, and the glow note renderer.
+- Three themes (`[theme]`), shared by the Textual apps and the outer tmux borders; each with its own default heartbeat animation and its own idea of whether the machine should be audible.
 
 **Left pane — tasks**
 - Task notes scanned from `tasks_dir` (non-recursive), shown as **two-line cards grouped under status headers**: full title + `priority · heat bar · age`.
@@ -203,7 +206,7 @@ re-attaches to the already-running session, which still shows the old build.
 - Notes render with `glow` in the Vibranium style (`q` closes the pager tab).
 
 **Right pane — live status** (each widget refreshes independently and degrades to `?`/`◌` on failure)
-- **Kimoyo beads** animation — pulses faster on any state change or an imminent meeting.
+- **Heartbeat animation** (`[animation]`: beads, scope, bars, glyphs) — excites on any state change or an imminent meeting.
 - **Clock**, **weather** (Open-Meteo), **calendar** (next events via `icalBuddy`).
 - **Battery** — %, AC/battery/charging, drain rate, ETA to 10%.
 - **Network** — primary IP, Wi-Fi + VPN, listening ports with owning process, open SSH tunnels.
@@ -213,6 +216,128 @@ re-attaches to the already-running session, which still shows the old build.
 **Global**
 - **Command palette** (`⌥x`) — fzf popup of `[commands]` presets + free-form; runs the choice in a center tab.
 - **Quick-capture** (`⌥c`) — type a line; Griot files it into the vault via `/griot:capture`.
+
+## Themes & animation
+
+Pick a theme in `~/.config/griot/config.toml`, then `griot restart`:
+
+```toml
+[theme]
+name = "vaporwave-mono"     # vibranium-night | vaporwave-mono | dataterm
+# [theme.colors]            # optional per-token overrides (hex)
+# accent = "#FF71CE"
+```
+
+| Theme | Look | Default heartbeat |
+|---|---|---|
+| `vibranium-night` | navy panels, gold accents | `beads` — the kimoyo pulse |
+| `vaporwave-mono` | grayscale, hot pink `#FF71CE`, cyan flashes | `scope` — a sine wave scrolling across a braille oscilloscope, phosphor trail |
+| `dataterm` | amber phosphor `#FFB000` on warm-brown `#140F08`/`#1E1710`, khaki `#877254` chrome and card frames, black seams, `UPPERCASE` titles | `glyphs` — a hex data stream with travelling packets |
+
+Colour tokens, by the surface each one paints:
+
+| Token | Surface |
+|---|---|
+| `bg` | the pane background — Dataterm's lit screen |
+| `panel` | card fill; `.panel` is every status widget, so this carries body text |
+| `chrome` | filled bars — pane title strip, detail title, pane/detail footer |
+| `chrome_text` | text *on* chrome — goes the opposite way to `text`, see below |
+| `border` | the seams between panes (tmux `pane-border-style`) |
+| `outline` | the frame drawn around a card |
+| `select` | the highlighted row |
+| `text` `muted` | body text and the tier below it (stale rows, dim animation cells) |
+| `accent` `accent_bright` | titles, and the animation's bright cells |
+| `secondary` `ok` `err` | status colours |
+
+`border` / `outline` / `select` were one token until Dataterm needed them apart: it
+wants black seams between panes, but a black card frame or selection band on a dark
+screen is invisible. Same for `chrome` out of `panel`, and for `chrome_text` out of
+`text` — chrome is near-black in two themes and a mid-tone khaki in the third, so its
+foreground has to go light in one direction and dark in the other. Inheriting `text`
+left Dataterm's bars at 2.51:1.
+
+One caveat if you override colours: **a mid-tone cannot carry text.** `#877254` is
+4.6:1 against *both* black and white, so the tier below body text has nowhere to go —
+`muted` on it lands at 1.67:1. Keep mid-tones in `chrome`, `outline` and `select`,
+and leave `bg` and `panel` dark or light.
+
+The heartbeat is configurable independently of the theme:
+
+```toml
+[animation]
+style = "bars"      # beads | scope | bars | glyphs
+speed = 0.10        # seconds per tick
+height = 2          # rows
+# scope:  wavelength = 12  amplitude = 1.0  trail = true
+# bars:   bar_width = 1  gap = 1  wavelength = 8  amplitude = 1.0
+# glyphs: glyph_set = "mixed" (katakana | blocks | hex | mixed)
+#         mutation_rate = 0.08  packets = 2  packet_length = 5  seed = 0
+```
+
+`bars` is a sine wave across spaced vertical bars; `glyphs` is a cyberspace stream whose
+cells mutate while bright packets cross it. Every style brightens and tightens for ~10s
+when a status flips or a meeting is close.
+
+### The drive
+
+Dataterm can sound like the machine it looks like. Off unless you ask for it:
+
+```toml
+[sound]
+enabled   = true    # default false — nothing plays until you set this
+volume    = 0.15    # 0.0-1.0
+whir      = true    # the ambient platter loop
+seek      = true    # head chatter when a status flips
+clicks    = true    # lone actuator thunks
+click_min = 4.0     # idle tick interval, randomised in [min, max] seconds
+click_max = 20.0
+```
+
+`m` in the status pane mutes and unmutes it live, and the footer docked at the bottom
+of that pane always shows which state you are in. macOS only; elsewhere every call is a
+silent no-op.
+
+**Mute is a flag file**, `~/.cache/griot/sound/muted`, not an in-memory bool. The tasks
+and status panes are separate processes — `bin/griot` send-keys into two tmux panes — so
+an in-memory flag would only silence half the drive. It also means mute survives a
+`griot restart`: if you silenced it before a call, it stays silenced, and the footer is
+there to tell you why it is quiet. One `stat` per one-shot is the whole cost.
+
+**Three sounds.** The *whir* is the ambient platter loop. A *seek* is a burst of head
+chatter, fired from the same `excite()` hook that quickens the heartbeat, so it tracks
+a status flip. A *click* is one lone actuator thunk — it fires on an idle ticker at a
+randomised interval, and on a real vault write (`t` touch, `p` priority), so the drive
+clicks when the disk is genuinely being written to.
+
+The ambient sounds belong to the status pane; the tasks pane installs a click-only
+engine (`whir` and `seek` off, `ticker=False`) so its own writes are audible without
+a second platter loop or a double idle tick.
+
+**Nothing ships as an audio file.** A 5400rpm platter is a 90 Hz fundamental, so the
+whir is that sine plus harmonics, a slow bearing wobble and a lowpassed air bed,
+synthesized with the stdlib `wave` module and cached in `~/.cache/griot/sound/`.
+`22050 / 90` is exactly 245 frames, so a whole number of revolutions is a whole number
+of frames — the tone's phase closes at the loop point, and the noise bed, which cannot
+wrap on its own, is cross-faded onto its own tail. Seeks are bandpassed noise bursts on
+a randomised rhythm; clicks are a 2ms noise excitation through two damped resonances,
+in three variants so the idle tick never reads as one sample fired twice.
+
+**Two playback tiers.** With PyObjC installed (a macOS-gated dependency, pulled in by
+default) griot uses AVFoundation's `AVAudioPlayer` with `numberOfLoops = -1`: a real
+gapless loop, in-process, nothing to orphan. Without it, the fallback shells out to
+`afplay`, which has no loop flag — a supervisor thread relaunches it and you hear a few
+ms of silence at the seam every 20 seconds. `sound.best_player()` picks the better tier.
+
+The two other themes set `whir`, `seek` and `clicks` false, so `enabled` alone does
+nothing on them; set the flags explicitly if you want the drive under Vibranium.
+
+**Terminal side.** Colours inside the panes come from griot; the terminal's own chrome and
+font do not. `uv run griot-theme --warp --write` drops `~/.warp/themes/griot-<name>.yaml`
+for Warp to pick up (add `--name <theme>` for one you are not currently running).
+Dataterm declares its own 16-colour ANSI ramp rather than deriving one, because a
+single-phosphor monitor could not show green or blue: eight dim amber rungs and eight
+bright ones, no slot repeated, every rung but `black` clearing 4.5:1 on the screen. Fonts that fit: Space Mono for Vaporwave Mono, Monaspace Krypton
+for Dataterm. `griot-theme --tmux` prints the border/accent pair the launcher uses.
 
 ## Keys
 
@@ -241,6 +366,14 @@ the standing rule to force progress or kill them.
 
 **Inside the task detail view:** `esc`/`q` back to the list · `o` open as center tab ·
 `c` load into a Claude session · `J` open Jira · `t` touch · `p` cycle priority.
+
+**Right pane (status):**
+
+| Key | Action |
+|---|---|
+| `m` | mute / unmute the drive — the footer at the bottom of the pane shows the current state (`DRIVE ON`, `DRIVE MUTED`, or `SOUND OFF` when it is disabled in config) |
+
+The pane has to have tmux focus for `m` to reach it — click it, or `ctrl-b →`.
 
 **Global (any pane):**
 

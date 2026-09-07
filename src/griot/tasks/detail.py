@@ -60,16 +60,16 @@ class TaskDetailScreen(Screen):
         n = parse_task(self.note.path)
         self.note = n
         self.query_one("#detail-title", Static).update(
-            Text(f" {n.title}", style=f"bold {theme.GOLD}")
+            Text(f" {n.title}", style=f"bold {theme.ACCENT}")
         )
         h = heat(n.progress_date, date.today())
-        pri_style = f"bold {theme.GOLD_BRIGHT}" if n.priority <= 2 else theme.MUTED
+        pri_style = f"bold {theme.ACCENT_BRIGHT}" if n.priority <= 2 else theme.MUTED
         chips = Text(" ")
-        chips.append(f" {n.status} ", style=f"{theme.BG} on {theme.GOLD}")
+        chips.append(f" {n.status} ", style=f"{theme.BG} on {theme.ACCENT}")
         chips.append("  ")
         chips.append(f"P{n.priority}", style=pri_style)
         chips.append("  ")
-        chips.append(heat_bar(h), style=theme.GOLD)
+        chips.append(heat_bar(h), style=theme.ACCENT)
         chips.append("  ")
         chips.append(
             n.progress_date.isoformat() if n.progress_date else "no progress date",

@@ -1,0 +1,41 @@
+{
+  "document": {
+    "block_prefix": "\n",
+    "block_suffix": "\n",
+    "color": "{{text}}",
+    "background_color": "{{bg}}",
+    "margin": 2
+  },
+  "block_quote": { "color": "{{muted}}", "indent": 1, "indent_token": "│ " },
+  "paragraph": {},
+  "list": { "color": "{{text}}", "level_indent": 2 },
+  "heading": { "color": "{{accent}}", "bold": true, "block_suffix": "\n" },
+  "h1": { "prefix": " ", "suffix": " ", "color": "{{bg}}", "background_color": "{{accent}}" },
+  "h2": { "prefix": "◆ " },
+  "h3": { "prefix": "◈ " },
+  "h4": { "prefix": "· " },
+  "h5": { "prefix": "· " },
+  "h6": { "prefix": "· " },
+  "strong": { "color": "{{accent_bright}}", "bold": true },
+  "emph": { "color": "{{accent_bright}}", "italic": true },
+  "hr": { "color": "{{border}}", "format": "\n────────────────────\n" },
+  "item": { "block_prefix": "• " },
+  "enumeration": { "block_prefix": ". " },
+  "task": { "ticked": "✓ ", "unticked": "○ " },
+  "link": { "color": "{{ok}}", "underline": true },
+  "link_text": { "color": "{{accent}}" },
+  "code": { "color": "{{accent_bright}}", "background_color": "{{panel}}" },
+  "code_block": {
+    "color": "{{text}}",
+    "background_color": "{{panel}}",
+    "margin": 2,
+    "chroma": {
+      "text": { "color": "{{text}}" },
+      "keyword": { "color": "{{accent}}" },
+      "literal_string": { "color": "{{ok}}" },
+      "comment": { "color": "{{muted}}" },
+      "name_function": { "color": "{{accent_bright}}" }
+    }
+  },
+  "table": { "center_separator": "┼", "column_separator": "│", "row_separator": "─" }
+}

@@ -32,16 +32,25 @@ fi
 
 CFG_OUT="$(uv run --project "$HERE" python -c \
   'from griot.config import load_config
+from griot import theme
 c = load_config()
+theme.activate_from_config(c)
 print(c.claude_default_dir)
 print(c.left_percent)
 print(c.right_percent)
-print(c.startup_prompt)' 2>/dev/null)" \
-  || die "could not read config — check ~/.config/griot/config.toml for invalid TOML (numbers only for latitude/longitude, no N/W suffixes)"
+print(c.startup_prompt)
+print(theme.BORDER)
+print(theme.ACCENT)' 2>/dev/null)" \
+  || die "could not read config — check ~/.config/griot/config.toml for invalid TOML (numbers only for latitude/longitude, no N/W suffixes; [theme] name must be vibranium-night, vaporwave-mono or dataterm)"
 CLAUDE_DIR="$(sed -n 1p <<<"$CFG_OUT")"
 LEFT_PCT="$(sed -n 2p <<<"$CFG_OUT")"
 RIGHT_PCT="$(sed -n 3p <<<"$CFG_OUT")"
 STARTUP="$(sed -n 4p <<<"$CFG_OUT")"
+THEME_BORDER="$(sed -n 5p <<<"$CFG_OUT")"
+THEME_ACCENT="$(sed -n 6p <<<"$CFG_OUT")"
+# Render the tmux tab-bar conf and glow style for the active theme.
+GEN_DIR="$(uv run --project "$HERE" griot-theme --generate 2>/dev/null)" \
+  || die "could not render theme assets (griot-theme --generate)"
 
 # First center window runs Claude, optionally with a startup slash command
 # (e.g. /griot:brief) so Griot briefs the current state on open. $SHELL is
@@ -63,12 +72,12 @@ export PATH="$HERE/bin:$PATH"
 COLS="$(tput cols 2>/dev/null || echo 200)"
 ROWS="$(tput lines 2>/dev/null || echo 50)"
 
-# Outer session: 3 panes, no status bar, Vibranium borders.
+# Outer session: 3 panes, no status bar, borders in the active theme.
 tmux new-session -d -s "$SESSION" -n main -x "$COLS" -y "$ROWS"
 tmux set -t "$SESSION" status off
 tmux set -t "$SESSION" mouse on
-tmux set -t "$SESSION" pane-border-style "fg=#1E3A5F"
-tmux set -t "$SESSION" pane-active-border-style "fg=#E3B341"
+tmux set -t "$SESSION" pane-border-style "fg=$THEME_BORDER"
+tmux set -t "$SESSION" pane-active-border-style "fg=$THEME_ACCENT"
 tmux set-environment -t "$SESSION" PATH "$PATH"
 # Command palette (⌥x) and quick-capture (⌥c) — global popups, also bound in
 # the inner center.conf so they work from any pane.
@@ -95,7 +104,7 @@ tmux send-keys -t "$SESSION:main.2" "uv run --project '$HERE' griot-status" C-m
 # after `new-session -A` is idempotent: on re-attach it just re-sets the
 # same value.
 tmux send-keys -t "$SESSION:main.1" \
-  "TMUX= tmux -L griot -f '$HERE/tmux/center.conf' new-session -A -s '$CENTER' -n griot -c '$CLAUDE_DIR' \"$CENTER_CMD\" \; set-option -t '$CENTER' @claude_dir '$CLAUDE_DIR'" C-m
+  "TMUX= tmux -L griot -f '$GEN_DIR/center.conf' new-session -A -s '$CENTER' -n griot -c '$CLAUDE_DIR' \"$CENTER_CMD\" \; set-option -t '$CENTER' @claude_dir '$CLAUDE_DIR'" C-m
 
 tmux select-pane -t "$SESSION:main.1"
 exec tmux attach -t "$SESSION"
