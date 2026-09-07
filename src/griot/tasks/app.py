@@ -95,7 +95,7 @@ class TasksApp(App):
     def on_mount(self) -> None:
         # This pane is a separate process from the status pane (bin/griot
         # send-keys into two tmux panes), so it needs its own engine or
-        # sound.click() on a vault write is a no-op. Ambient sound stays with
+        # sound.disk_write() on a vault write is a no-op. Ambient sound stays with
         # the status pane: no whir, no seek, and ticker=False so the idle tick
         # is not fired twice.
         sound.install({**self.sound_cfg, "whir": False, "seek": False}, ticker=False)
@@ -106,7 +106,7 @@ class TasksApp(App):
         self._header = self.query_one("#tasks-header", Static)
         self._footer = self.query_one("#footer-hint", Static)
         self._list.focus()
-        self._rescan()
+        self._rescan(audible=True)   # startup reads every note
         self.set_interval(5.0, self._poll)
 
     # --- data ---
@@ -168,7 +168,9 @@ class TasksApp(App):
         rule = "─" * max(0, 20 - len(status))
         return Text(f"── {status} {rule}", style=f"bold {theme.ACCENT}")
 
-    def _rescan(self) -> None:
+    def _rescan(self, audible: bool = False) -> None:
+        if audible:
+            sound.disk_read()
         today = date.today()
         current = self._current()
         selected_path = str(current.path) if current else None
@@ -256,6 +258,7 @@ class TasksApp(App):
         if note and not note.parse_error:
             from griot.tasks.detail import TaskDetailScreen
 
+            sound.disk_read()   # detail.note_body() read_text()s the note
             self.push_screen(TaskDetailScreen(note))
 
     # --- note operations (shared by list actions and the detail overlay) ---
@@ -291,13 +294,13 @@ class TasksApp(App):
     def touch_note(self, note: TaskNote) -> None:
         if not note.parse_error:
             touch(note.path, date.today())
-            sound.click()      # the drive clicks when the disk is actually written
+            sound.disk_write()   # the drive works when the disk is actually written
             self._rescan()
 
     def cycle_note_priority(self, note: TaskNote) -> None:
         if not note.parse_error:
             cycle_priority(note.path, note.priority)
-            sound.click()
+            sound.disk_write()
             self._rescan()
 
     def open_jira(self, note: TaskNote) -> None:
@@ -338,7 +341,7 @@ class TasksApp(App):
         self._rescan()
 
     def action_rescan(self) -> None:
-        self._rescan()
+        self._rescan(audible=True)
 
 
 def main() -> None:

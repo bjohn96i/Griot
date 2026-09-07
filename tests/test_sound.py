@@ -3,6 +3,7 @@
 Nothing here ever spawns afplay — every engine test injects a fake player.
 """
 import math
+import os
 import threading
 import time
 import wave
@@ -112,9 +113,10 @@ def test_write_wav_produces_a_real_mono_16_bit_file(tmp_path):
 
 def test_ensure_assets_writes_both_and_is_idempotent(tmp_path):
     a = sound.ensure_assets(tmp_path, whir_seconds=0.5)
-    assert set(a) == {"whir", "seek", "clicks"}
-    assert len(a["clicks"]) == sound.CLICK_VARIANTS
-    everything = [a["whir"], a["seek"], *a["clicks"]]
+    assert set(a) == {"whir", "seek", "clicks", "writes", "reads"}
+    for family in ("clicks", "writes", "reads"):
+        assert len(a[family]) == sound.CLICK_VARIANTS, family
+    everything = [a["whir"], a["seek"], *a["clicks"], *a["writes"], *a["reads"]]
     assert all(p.exists() and p.stat().st_size > 44 for p in everything)
     stamps = {p: p.stat().st_mtime_ns for p in everything}
     again = sound.ensure_assets(tmp_path, whir_seconds=0.5)
@@ -204,7 +206,9 @@ class FakeLoopPlayer(FakePlayer):
 
 def _assets(tmp_path):
     return {"whir": tmp_path / "whir.wav", "seek": tmp_path / "seek.wav",
-            "clicks": [tmp_path / f"click{i}.wav" for i in (1, 2, 3)]}
+            "clicks": [tmp_path / f"click{i}.wav" for i in (1, 2, 3)],
+            "writes": [tmp_path / f"write{i}.wav" for i in (1, 2, 3)],
+            "reads": [tmp_path / f"read{i}.wav" for i in (1, 2, 3)]}
 
 
 def _wait(predicate, timeout=2.0):
@@ -636,3 +640,207 @@ def test_module_muted_reads_the_flag_with_no_engine(tmp_path, monkeypatch):
     assert sound.muted() is False
     (tmp_path / "muted").touch()
     assert sound.muted() is True
+
+
+# ----------------------------------------------------- write / read bursts ----
+
+def _impact_count(samples, window_ms=8.0, threshold=0.22):
+    """Count loud runs — one run per head impact.
+
+    The window is a fixed duration, not a fixed count: an impact rings near
+    1 kHz, so a window has to span several cycles or the sinusoid's own zero
+    crossings read as separate impacts.
+    """
+    step = max(1, int(window_ms / 1000 * sound.SAMPLE_RATE))
+    levels = [_rms(samples[i:i + step]) for i in range(0, len(samples), step)]
+    loud = max(levels)
+    hot = [lv >= threshold * loud for lv in levels]
+    return sum(1 for i, h in enumerate(hot) if h and not (i and hot[i - 1]))
+
+
+def test_a_write_is_a_burst_of_several_impacts_not_one_tick():
+    for seed in (1, 2, 3):
+        w = sound.write_samples(seed=seed)
+        seconds = len(w) / sound.SAMPLE_RATE
+        assert 0.20 < seconds < 0.90, (seed, seconds)
+        assert _impact_count(w) >= 3, (seed, _impact_count(w))
+    click = sound.click_samples(seed=1)
+    assert _impact_count(click) == 1, "the idle tick stays a single impact"
+    assert len(sound.write_samples(seed=1)) > 4 * len(click)
+
+
+def test_a_write_settles_so_later_impacts_land_softer():
+    w = sound.write_samples(seed=1)
+    third = len(w) // 3
+    assert _rms(w[:third]) > _rms(w[-third:]), "the arm should settle, not crescendo"
+
+
+def test_a_read_is_lighter_and_shorter_than_a_write():
+    r, w = sound.read_samples(seed=1), sound.write_samples(seed=1)
+    assert len(r) < len(w)
+    assert 0.08 < len(r) / sound.SAMPLE_RATE < 0.30
+    assert 2 <= _impact_count(r) <= 3
+    # normalised to a lower peak on purpose: a read is the lighter operation
+    assert max(abs(x) for x in r) < max(abs(x) for x in w)
+
+
+def test_a_read_rings_higher_than_a_click():
+    r, c = sound.read_samples(seed=1), sound.click_samples(seed=1)
+    def brightest(s, lo, hi):
+        return max(_goertzel(s, float(f), sound.SAMPLE_RATE) for f in range(lo, hi, 50))
+    assert brightest(r, 1300, 1900) > brightest(r, 700, 1000)
+    assert brightest(c, 900, 1400) > brightest(c, 1500, 1900)
+
+
+@pytest.mark.parametrize("maker", [sound.write_samples, sound.read_samples])
+def test_burst_variants_are_distinct_and_deterministic(maker):
+    variants = [maker(seed=i + 1) for i in range(sound.CLICK_VARIANTS)]
+    assert len({tuple(v) for v in variants}) == sound.CLICK_VARIANTS
+    assert variants[0] == maker(seed=1)
+
+
+# ------------------------------------------------------------ one-shot gain ----
+
+def test_one_shot_gain_lifts_transients_above_the_whir():
+    cfg = sound.resolve({}, {"volume": 0.15})
+    assert cfg["one_shot_gain"] == 1.8
+    eng = sound.SoundEngine(cfg, player=FakePlayer())
+    assert eng.volume == 0.15
+    assert eng.one_shot_volume == 0.27
+
+
+def test_one_shot_volume_is_clamped_to_the_player_range():
+    cfg = sound.resolve({}, {"volume": 0.8, "one_shot_gain": 4.0})
+    eng = sound.SoundEngine(cfg, player=FakePlayer())
+    assert eng.one_shot_volume == 1.0, "afplay/AVAudioPlayer take 0.0-1.0"
+
+
+def test_resolve_rejects_a_non_positive_gain():
+    with pytest.raises(ValueError, match="one_shot_gain"):
+        sound.resolve({}, {"one_shot_gain": 0})
+    with pytest.raises(ValueError, match="one_shot_gain"):
+        sound.resolve({}, {"one_shot_gain": -1.0})
+
+
+def test_the_whir_stays_at_the_plain_volume(tmp_path):
+    """Only transients get the lift; the ambient bed is the reference level."""
+    pl = FakeLoopPlayer()
+    eng = _engine(tmp_path, pl, volume=0.2)
+    eng.start()
+    try:
+        assert pl.calls == [("whir.wav", 0.2, True)], pl.calls
+    finally:
+        eng.stop()
+
+
+def test_each_disk_sound_picks_its_own_family_and_debounce(tmp_path):
+    pl = FakePlayer()
+    eng = _engine(tmp_path, pl, whir=False, seek=True, clicks=True,
+                  click_min=300.0, click_max=300.0, volume=0.1)
+    eng.start()
+    try:
+        for fire, expected in ((eng.seek, "seek.wav"), (eng.click, "click"),
+                               (eng.disk_write, "write"), (eng.disk_read, "read")):
+            eng._last.clear()
+            before = len(pl.names())
+            fire()
+            assert _wait(lambda: len(pl.names()) > before), (expected, pl.names())
+            assert pl.names()[-1].startswith(expected), pl.names()
+        # every one-shot rode the gain, none rode the plain volume
+        assert {round(v, 3) for _, v, _ in pl.calls} == {0.18}
+    finally:
+        eng.stop()
+
+
+def test_a_write_burst_does_not_stack_on_itself(tmp_path):
+    pl = FakePlayer()
+    eng = _engine(tmp_path, pl, whir=False, seek=False, clicks=True,
+                  click_min=300.0, click_max=300.0)
+    eng.start()
+    try:
+        for _ in range(6):
+            eng.disk_write()
+        assert _wait(lambda: len(pl.names()) == 1)
+        assert len(pl.names()) == 1, "the asset is ~400ms; six calls is one burst"
+    finally:
+        eng.stop()
+
+
+def test_clicks_false_silences_the_whole_actuator_family(tmp_path):
+    pl = FakePlayer()
+    eng = _engine(tmp_path, pl, whir=False, seek=False, clicks=False)
+    eng.start()
+    try:
+        eng.click()
+        eng.disk_write()
+        eng.disk_read()
+        assert not _wait(lambda: bool(pl.calls), timeout=0.3)
+    finally:
+        eng.stop()
+
+
+def test_module_disk_hooks_are_safe_without_an_engine():
+    sound.shutdown()
+    sound.disk_write()
+    sound.disk_read()
+    assert sound.engine() is None
+
+
+def test_avplayer_caches_one_player_per_asset_and_rewinds_it(tmp_path):
+    av = sound.AVPlayer()
+    if not av.available():
+        pytest.skip("PyObjC/AVFoundation not installed")
+    a = sound.write_wav(tmp_path / "one.wav", sound.click_samples(seed=1))
+    b = sound.write_wav(tmp_path / "two.wav", sound.click_samples(seed=2))
+    first = av.play(a, 0.0)
+    again = av.play(a, 0.0)
+    assert again is first, "the same asset must reuse its player"
+    assert av.play(b, 0.0) is not first
+    assert av.play(a, 0.0, loop=True) is not first, "looping is a distinct player"
+    assert len(av._cache) == 3
+
+
+def test_avplayer_does_not_leak_a_descriptor_per_one_shot(tmp_path):
+    """Regression: a player built per one-shot holds its file open for good.
+
+    Measured at ~10 descriptors a minute from the idle ticker alone, which
+    exhausts the pane's limit inside an hour. Neither dropping the reference,
+    nor stop(), nor draining an autorelease pool releases it — so the players
+    are cached and rewound, and the open count has to stay flat.
+    """
+    av = sound.AVPlayer()
+    if not av.available():
+        pytest.skip("PyObjC/AVFoundation not installed")
+    assets = [sound.write_wav(tmp_path / f"c{i}.wav", sound.click_samples(seed=i + 1))
+              for i in range(3)]
+
+    def open_fds():
+        return len(os.listdir("/dev/fd"))
+
+    for path in assets:                     # warm the cache
+        av.play(path, 0.0)
+    time.sleep(0.2)
+    base = open_fds()
+    for i in range(24):
+        av.play(assets[i % 3], 0.0)
+        time.sleep(0.01)
+    time.sleep(0.2)
+    grew = open_fds() - base
+    assert grew <= 2, f"24 one-shots opened {grew} more descriptors"
+    assert len(av._cache) == 3, av._cache.keys()
+
+
+def test_a_stopped_cached_player_still_replays(tmp_path):
+    """kill() stops without discarding, so mute/unmute must not break it."""
+    av = sound.AVPlayer()
+    if not av.available():
+        pytest.skip("PyObjC/AVFoundation not installed")
+    path = sound.write_wav(tmp_path / "loop.wav", sound.whir_samples(seconds=1.0))
+    handle = av.play(path, 0.0, loop=True)
+    assert handle.poll() is None
+    av.kill(handle)
+    assert handle.poll() is not None
+    again = av.play(path, 0.0, loop=True)
+    assert again is handle
+    assert handle.poll() is None, "a killed player must come back on retrigger"
+    av.kill(handle)

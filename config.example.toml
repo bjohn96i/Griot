@@ -58,8 +58,15 @@ name = "vibranium-night"
 # volume = 0.15         # 0.0-1.0
 # whir = true           # ambient platter loop
 # seek = true           # head chatter on a status change
-# clicks = true         # lone actuator thunks: idle ticker + on vault writes
+# clicks = true         # actuator family: idle tick, write burst, read tap
+# click_min = 4.0       # idle tick interval, randomised in [min, max] seconds
+# click_max = 20.0      # push this to 3600 for writes/reads but no idle ticking
+# one_shot_gain = 1.8   # transients play at volume x gain (clamped to 1.0). A
+#                       # click is 0.32x the whir's RMS at equal volume, so a
+#                       # lone tick under the loop is otherwise inaudible.
+# Writes sound on `t`/`p`; reads on opening a task's detail, the startup scan,
+# and `r`. An automatic rescan stays silent. To hear Claude read and write the
+# vault too — which is most of the traffic — wire bin/griot-disk to Claude Code
+# PostToolUse hooks; see "Hearing Claude work" in the README.
 # `m` in the status pane mutes; the state is a flag file, so both panes agree
 # and it survives a restart. The footer at the bottom of the pane shows it.
-# click_min = 4.0       # idle tick interval, randomised in [min, max] seconds
-# click_max = 20.0

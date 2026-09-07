@@ -47,12 +47,18 @@ CACHE_DIR = Path.home() / ".cache" / "griot" / "sound"
 # processes (bin/griot send-keys into two tmux panes), so an in-process flag
 # would only silence half the drive. One stat per one-shot is the whole cost.
 MUTE_FLAG = CACHE_DIR / "muted"
+# Rendered for bin/griot-disk, the Claude Code hook. The hook is plain sh so it
+# never pays Python's ~170ms startup on every tool call; this file keeps
+# resolve() the only place enabled/volume/gain are actually decided.
+PARAMS_FILE = CACHE_DIR / "params"
 
 THREAD_NAME = "griot-whir"
 PREP_THREAD_NAME = "griot-synth"
 TICK_THREAD_NAME = "griot-tick"
 SEEK_DEBOUNCE = 0.35        # a burst of state changes is one seek, not twelve
 CLICK_DEBOUNCE = 0.12       # a click is short; only collapse true simultaneity
+WRITE_DEBOUNCE = 0.25       # a write burst is ~400ms; do not let them stack
+READ_DEBOUNCE = 0.20
 MIN_PLAY_SECONDS = 0.2      # anything shorter means afplay failed; back off
 
 DEFAULTS: dict[str, object] = {
@@ -63,6 +69,9 @@ DEFAULTS: dict[str, object] = {
     "clicks": True,
     "click_min": 4.0,       # idle tick interval, randomised in [min, max]
     "click_max": 20.0,
+    # One-shots are transients against a continuous bed: a click is only 0.32x
+    # the whir's RMS at the same volume, so it needs lifting to be heard at all.
+    "one_shot_gain": 1.8,
 }
 
 
@@ -82,6 +91,10 @@ def resolve(theme_default: dict, user: dict) -> dict:
     if lo <= 0 or hi < lo:
         raise ValueError(f"click_min/click_max: need 0 < min <= max, got {lo} / {hi}")
     cfg["click_min"], cfg["click_max"] = lo, hi
+    gain = float(cfg["one_shot_gain"])
+    if gain <= 0:
+        raise ValueError(f"one_shot_gain: expected a positive number, got {gain!r}")
+    cfg["one_shot_gain"] = gain
     return cfg
 
 
@@ -180,30 +193,81 @@ def seek_samples(rate: int = SAMPLE_RATE, seed: int = 0) -> list[int]:
     return _to_int16(voiced, peak=0.8)
 
 
-def click_samples(rate: int = SAMPLE_RATE, seed: int = 0) -> list[int]:
-    """One actuator thunk: a 2ms noise excitation, then two damped resonances.
+def _render_impact(buf: list[float], at: int, rate: int, rng: random.Random,
+                   gain: float = 1.0, ring: tuple = (950.0, 1350.0),
+                   thunk: tuple = (150.0, 220.0), tau_ring: tuple = (0.008, 0.016),
+                   tau_thunk: tuple = (0.018, 0.030), thunk_level: float = 0.55,
+                   length: float = 0.045, excite: float = 0.002) -> None:
+    """One actuator impact, summed into `buf` at frame `at`.
 
-    The high ring is the head arm hitting its stop; the low one is the chassis
-    answering. Every variant jitters both frequencies and both decay times, so
-    three cached variants never read as the same sample fired twice.
+    A 2ms noise excitation, then two damped resonances: the high ring is the
+    head arm hitting its stop, the low one is the chassis answering. Every
+    impact jitters both frequencies and both decay times, so a burst never
+    sounds like one sample repeated.
+    """
+    f_ring = rng.uniform(*ring)
+    f_thunk = rng.uniform(*thunk)
+    t_ring = rng.uniform(*tau_ring)
+    t_thunk = rng.uniform(*tau_thunk)
+    n = int(length * rate)
+    ex = max(1, int(excite * rate))
+    for i in range(n):
+        if at + i >= len(buf):
+            break
+        t = i / rate
+        v = math.exp(-t / t_ring) * math.sin(2 * math.pi * f_ring * t)
+        v += thunk_level * math.exp(-t / t_thunk) * math.sin(2 * math.pi * f_thunk * t)
+        if i < ex:
+            v += 1.4 * rng.uniform(-1.0, 1.0) * (1.0 - i / ex)
+        buf[at + i] += gain * v
+
+
+def click_samples(rate: int = SAMPLE_RATE, seed: int = 0) -> list[int]:
+    """One lone thunk — the drive ticking to itself while idle."""
+    rng = random.Random(seed)
+    buf = [0.0] * int(0.045 * rate)
+    _render_impact(buf, 0, rate, rng)
+    return _to_int16(_highpass(buf, 120.0, rate), peak=0.75)
+
+
+def write_samples(rate: int = SAMPLE_RATE, seed: int = 0) -> list[int]:
+    """A write: 3-6 head impacts over ~300-500ms, then the arm settling.
+
+    One asset rather than four scheduled one-shots — the rhythm is baked in, so
+    playing a write costs a single play() call and cannot drift or stack.
     """
     rng = random.Random(seed)
-    f_ring = rng.uniform(950.0, 1350.0)
-    f_thunk = rng.uniform(150.0, 220.0)
-    tau_ring = rng.uniform(0.008, 0.016)
-    tau_thunk = rng.uniform(0.018, 0.030)
-    n = int(0.045 * rate)
-    excite = max(1, int(0.002 * rate))
+    impacts = rng.randint(3, 6)
+    starts, cursor = [], 0.0
+    for k in range(impacts):
+        cursor += rng.uniform(0.040, 0.110)
+        # the arm settles: later impacts land softer
+        starts.append((cursor, rng.uniform(0.70, 1.0) * (1.0 - 0.10 * k)))
+    buf = [0.0] * int((cursor + 0.09) * rate)
+    for start, gain in starts:
+        _render_impact(buf, int(start * rate), rate, rng, gain=gain,
+                       thunk_level=0.75, tau_thunk=(0.020, 0.034))
+    return _to_int16(_highpass(buf, 120.0, rate), peak=0.85)
 
-    buf = []
-    for i in range(n):
-        t = i / rate
-        v = math.exp(-t / tau_ring) * math.sin(2 * math.pi * f_ring * t)
-        v += 0.55 * math.exp(-t / tau_thunk) * math.sin(2 * math.pi * f_thunk * t)
-        if i < excite:
-            v += 1.4 * rng.uniform(-1.0, 1.0) * (1.0 - i / excite)
-        buf.append(v)
-    return _to_int16(_highpass(buf, 120.0, rate), peak=0.75)
+
+def read_samples(rate: int = SAMPLE_RATE, seed: int = 0) -> list[int]:
+    """A read: 2-3 lighter, higher, shorter taps. Reads do not settle a head.
+
+    Deliberately quieter than a write at the same volume, because on a real
+    drive a read is the lighter of the two operations.
+    """
+    rng = random.Random(seed)
+    starts, cursor = [], 0.0
+    for _ in range(rng.randint(2, 3)):
+        cursor += rng.uniform(0.035, 0.080)
+        starts.append((cursor, rng.uniform(0.55, 0.85)))
+    buf = [0.0] * int((cursor + 0.05) * rate)
+    for start, gain in starts:
+        _render_impact(buf, int(start * rate), rate, rng, gain=gain,
+                       ring=(1300.0, 1850.0), thunk_level=0.22,
+                       tau_ring=(0.005, 0.010), tau_thunk=(0.010, 0.018),
+                       length=0.030)
+    return _to_int16(_highpass(buf, 120.0, rate), peak=0.60)
 
 
 # ------------------------------------------------------------------ assets --
@@ -219,6 +283,20 @@ def write_wav(path: Path | str, samples: list[int], rate: int = SAMPLE_RATE) -> 
     return path
 
 
+def write_params(cfg: dict, path: Path | None = None) -> Path:
+    """Render the resolved sound config as shell assignments for the hook."""
+    target = Path(path) if path is not None else PARAMS_FILE
+    gain = min(1.0, float(cfg["volume"]) * float(cfg["one_shot_gain"]))
+    body = (f"enabled={1 if cfg['enabled'] else 0}\n"
+            f"clicks={1 if cfg['clicks'] else 0}\n"
+            f"volume={float(cfg['volume']):.3f}\n"
+            f"one_shot_volume={gain:.3f}\n"
+            f"version={SYNTH_VERSION}\n")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body)
+    return target
+
+
 def ensure_assets(directory: Path | str | None = None,
                   whir_seconds: float = WHIR_SECONDS,
                   rate: int = SAMPLE_RATE) -> dict:
@@ -227,19 +305,33 @@ def ensure_assets(directory: Path | str | None = None,
     v = SYNTH_VERSION
     singles = {"whir": (d / f"whir-{v}.wav", lambda: whir_samples(whir_seconds, rate)),
                "seek": (d / f"seek-{v}.wav", lambda: seek_samples(rate))}
-    clicks = [(d / f"click{i + 1}-{v}.wav", (lambda i=i: click_samples(rate, seed=i + 1)))
-              for i in range(CLICK_VARIANTS)]
-    for path, make in [*singles.values(), *clicks]:
+    families = {"clicks": ("click", click_samples), "writes": ("write", write_samples),
+                "reads": ("read", read_samples)}
+    variants: dict[str, list] = {}
+    for key, (stem, maker) in families.items():
+        variants[key] = [(d / f"{stem}{i + 1}-{v}.wav",
+                          (lambda i=i, m=maker: m(rate, seed=i + 1)))
+                         for i in range(CLICK_VARIANTS)]
+    everything = [*singles.values(), *(pair for group in variants.values() for pair in group)]
+    for path, make in everything:
         if not path.exists() or path.stat().st_size <= 44:
             write_wav(path, make(), rate)
-    return {"whir": singles["whir"][0], "seek": singles["seek"][0],
-            "clicks": [path for path, _ in clicks]}
+    out = {"whir": singles["whir"][0], "seek": singles["seek"][0]}
+    for key, group in variants.items():
+        out[key] = [path for path, _ in group]
+    return out
 
 
 # ---------------------------------------------------------------- playback --
 
 class _AVHandle:
-    """Keeps the AVAudioPlayer alive — drop the reference and playback stops."""
+    """One AVAudioPlayer, retriggered rather than recreated.
+
+    An AVAudioPlayer holds its file open for its whole lifetime, and nothing
+    reachable from Python shortens that: dropping the reference, calling stop(),
+    and draining an autorelease pool were all measured to leave the descriptor
+    open. So the players are cached and rewound instead — see AVPlayer.
+    """
 
     def __init__(self, player) -> None:
         self._player = player
@@ -251,6 +343,12 @@ class _AVHandle:
         if timeout:
             time.sleep(timeout)
 
+    def retrigger(self, volume: float) -> None:
+        self._player.setVolume_(float(volume))
+        self._player.setCurrentTime_(0.0)
+        if not self._player.play():
+            raise OSError("AVAudioPlayer refused to play")
+
     def stop(self) -> None:
         self._player.stop()
 
@@ -260,12 +358,19 @@ class AVPlayer:
 
     Verified headless: no NSRunLoop needed, `stop()` is immediate, and there is
     no child process to orphan. This is the preferred tier.
+
+    One player is cached per (asset, loop) pair and rewound on each play, because
+    a player created per one-shot leaks its file descriptor — the idle ticker
+    alone leaked ~10/minute, which would exhaust the pane's limit within the
+    hour. Cached, the open descriptors are bounded by the number of assets.
     """
 
     supports_loop = True
 
     def __init__(self) -> None:
         self._av = None
+        self._cache: dict[tuple[str, bool], _AVHandle] = {}
+        self._cache_lock = threading.Lock()
 
     def _framework(self):
         if self._av is None:
@@ -281,7 +386,7 @@ class AVPlayer:
         except Exception:
             return False
 
-    def play(self, path: Path, volume: float, loop: bool = False):
+    def _load(self, path: Path, loop: bool) -> _AVHandle:
         av = self._framework()
         from Foundation import NSURL
         url = NSURL.fileURLWithPath_(str(path))
@@ -289,13 +394,21 @@ class AVPlayer:
         if player is None:
             raise OSError(f"AVAudioPlayer could not open {path}: {err}")
         player.setNumberOfLoops_(-1 if loop else 0)
-        player.setVolume_(float(volume))
         player.prepareToPlay()
-        if not player.play():
-            raise OSError(f"AVAudioPlayer refused to play {path}")
         return _AVHandle(player)
 
+    def play(self, path: Path, volume: float, loop: bool = False):
+        key = (str(path), bool(loop))
+        with self._cache_lock:
+            handle = self._cache.get(key)
+            if handle is None:
+                handle = self._load(path, loop)
+                self._cache[key] = handle
+        handle.retrigger(volume)
+        return handle
+
     def kill(self, handle) -> None:
+        # Stopped, not discarded: the cache keeps it for the next retrigger.
         try:
             handle.stop()
         except Exception:
@@ -365,8 +478,7 @@ class SoundEngine:
         self._proc = None
         self._loop_handle = None                       # AVAudioPlayer, looping itself
         self._oneshots: list = []
-        self._last_seek = 0.0
-        self._last_click = 0.0
+        self._last: dict[str, float] = {}      # per-sound debounce clocks
         self._rng = random.Random()
         self._lock = threading.RLock()
         self._assets_lock = threading.Lock()
@@ -376,6 +488,11 @@ class SoundEngine:
     @property
     def volume(self) -> float:
         return float(self.cfg["volume"])
+
+    @property
+    def one_shot_volume(self) -> float:
+        """Transients need lifting to be heard over the continuous whir."""
+        return min(1.0, self.volume * float(self.cfg["one_shot_gain"]))
 
     @property
     def muted(self) -> bool:
@@ -536,46 +653,55 @@ class SoundEngine:
             pass
 
     # -- seek chatter ---------------------------------------------------------
-    def seek(self) -> None:
-        """Fire-and-forget. Called from a render path, so it swallows everything."""
+    # name -> (config flag, asset key, debounce seconds)
+    ONE_SHOTS = {
+        "seek": ("seek", "seek", SEEK_DEBOUNCE),
+        "click": ("clicks", "clicks", CLICK_DEBOUNCE),
+        "write": ("clicks", "writes", WRITE_DEBOUNCE),
+        "read": ("clicks", "reads", READ_DEBOUNCE),
+    }
+
+    def _one_shot(self, name: str) -> None:
+        """Fire-and-forget. Called from render paths, so it swallows everything."""
         try:
-            if not self._live() or not bool(self.cfg["seek"]):
+            flag, asset, debounce = self.ONE_SHOTS[name]
+            if not self._live() or not bool(self.cfg[flag]):
                 return
             now = time.monotonic()
             with self._lock:
-                if now - self._last_seek < SEEK_DEBOUNCE:
+                if now - self._last.get(name, 0.0) < debounce:
                     return
-                self._last_seek = now
-                self._oneshots = [p for p in self._oneshots if p.poll() is None]
-            paths = self._assets
-            if paths is None:
-                return      # still synthesizing; skip rather than block the render
-            proc = self._player.play(paths["seek"], self.volume)
+                self._last[name] = now
+                self._oneshots = [h for h in self._oneshots if h.poll() is None]
+            target = (self._assets or {}).get(asset)
+            if isinstance(target, list):
+                target = self._rng.choice(target) if target else None
+            if target is None:
+                return      # still synthesizing; skip rather than block the caller
+            handle = self._player.play(target, self.one_shot_volume)
             with self._lock:
-                self._oneshots.append(proc)
+                # A cached player returns the same handle each time; only the
+                # afplay tier hands back a fresh child worth tracking.
+                if not any(h is handle for h in self._oneshots):
+                    self._oneshots.append(handle)
         except Exception:
             pass
 
+    def seek(self) -> None:
+        """Head chatter — a status flipped."""
+        self._one_shot("seek")
+
     def click(self) -> None:
-        """One thunk, from the idle ticker or a vault write. Same safety as seek."""
-        try:
-            if not self._live() or not bool(self.cfg["clicks"]):
-                return
-            now = time.monotonic()
-            with self._lock:
-                if now - self._last_click < CLICK_DEBOUNCE:
-                    return
-                self._last_click = now
-                self._oneshots = [h for h in self._oneshots if h.poll() is None]
-            paths = self._assets
-            variants = (paths or {}).get("clicks") or []
-            if not variants:
-                return      # still synthesizing
-            handle = self._player.play(self._rng.choice(variants), self.volume)
-            with self._lock:
-                self._oneshots.append(handle)
-        except Exception:
-            pass
+        """One lone thunk — the idle ticker."""
+        self._one_shot("click")
+
+    def disk_write(self) -> None:
+        """A burst — the vault was actually written to."""
+        self._one_shot("write")
+
+    def disk_read(self) -> None:
+        """Lighter taps — the vault was actually read."""
+        self._one_shot("read")
 
     # -- mute -----------------------------------------------------------------
     def toggle_mute(self) -> bool:
@@ -603,6 +729,10 @@ def install(cfg: dict, **kwargs) -> SoundEngine:
     global _ENGINE
     shutdown()
     _ENGINE = SoundEngine(cfg, **kwargs)
+    try:
+        write_params(cfg)      # so the Claude Code hook agrees with this config
+    except OSError:
+        pass
     _ENGINE.start()
     return _ENGINE
 
@@ -624,6 +754,18 @@ def click() -> None:
     eng = _ENGINE
     if eng is not None:
         eng.click()
+
+
+def disk_write() -> None:
+    eng = _ENGINE
+    if eng is not None:
+        eng.disk_write()
+
+
+def disk_read() -> None:
+    eng = _ENGINE
+    if eng is not None:
+        eng.disk_read()
 
 
 def muted() -> bool:
