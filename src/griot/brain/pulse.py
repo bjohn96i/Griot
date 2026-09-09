@@ -22,7 +22,7 @@ BOOST_SPEED = 0.9
 QUIET = 0.01
 
 KINDS = {
-    WRITE: {"scale": 1.0, "decay": 1.3, "hops": 3},
+    WRITE: {"scale": 1.0, "decay": 1.4, "hops": 3},
     READ: {"scale": 0.6, "decay": 0.5, "hops": 2},
 }
 

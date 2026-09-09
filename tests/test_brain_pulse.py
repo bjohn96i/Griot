@@ -54,7 +54,7 @@ def test_a_read_is_the_lighter_event():
 def test_energy_decays_to_quiet():
     p = Pulses(chain(5))
     p.hit(0, WRITE)
-    for _ in range(600):
+    for _ in range(900):            # 9s — a write's 1.4s decay needs the room
         p.advance(0.01)
     assert not p.active
     assert p.energy.max() < 0.01
