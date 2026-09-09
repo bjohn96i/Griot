@@ -15,7 +15,14 @@ from .graph import Graph
 READ, WRITE = "read", "write"
 
 HOP_AMPLITUDE = (1.0, 0.55, 0.30)
-HOP_DELAY = 0.12          # seconds per hop
+# A hop is carried by a spark travelling the connection, not by a timer: the
+# old fixed delay lit every neighbour of a hub simultaneously, which reads as a
+# ring flashing on rather than a signal propagating.
+SPARK_SPEED = 2.0         # edges per second
+SPARK_FANOUT = 3          # onward connections a spark lights from where it lands
+SPARK_FIRST_FANOUT = 24   # from the originating node; a degree-134 hub would
+                          # otherwise spawn 134 sparks and then thousands
+MAX_SPARKS = 500
 ELECTRONS_PER_EDGE = 1
 AMBIENT_SPEED = 0.08      # fraction of an edge per second at rest
 BOOST_SPEED = 0.9
@@ -34,8 +41,14 @@ class Pulses:
         self.energy = np.zeros(graph.n, np.float32)
         self.decay = np.full(graph.n, KINDS[WRITE]["decay"], np.float32)
         self.kind_of = np.array([WRITE] * graph.n, dtype=object)
-        self._pending: list[tuple[float, int, float, str]] = []   # (delay, node, amp, kind)
+        # each spark: [edge index, node it is heading for, progress 0..1,
+        #              amplitude it will deliver, kind, hop number]
+        self._sparks: list[list] = []
         self._clock = 0.0
+        self._incident: list[list[tuple[int, int]]] = [[] for _ in range(graph.n)]
+        for index, (a, b) in enumerate(graph.edges):
+            self._incident[a].append((index, b))
+            self._incident[b].append((index, a))
         count = len(graph.edges) * ELECTRONS_PER_EDGE
         self._edge_of = np.repeat(np.arange(len(graph.edges)), ELECTRONS_PER_EDGE)
         self._t = (np.tile(np.arange(ELECTRONS_PER_EDGE) / ELECTRONS_PER_EDGE,
@@ -44,49 +57,61 @@ class Pulses:
 
     @property
     def active(self) -> bool:
-        return bool(self.energy.max(initial=0.0) > QUIET) or bool(self._pending)
+        return bool(self.energy.max(initial=0.0) > QUIET) or bool(self._sparks)
+
+    def sparks(self) -> list[tuple[int, float, float]]:
+        """(edge index, position along that edge 0..1, amplitude) per spark."""
+        out = []
+        for index, target, progress, amplitude, _kind, _hop in self._sparks:
+            a, _b = self.graph.edges[index]
+            out.append((index, progress if target != a else 1.0 - progress, amplitude))
+        return out
+
+    def _emit(self, node: int, amplitude: float, kind: str, hop: int, came_from: int) -> None:
+        """Send sparks out along this node's connections."""
+        limit = min(self.hops, KINDS[kind]["hops"])
+        if hop > limit or amplitude < QUIET:
+            return
+        fan = SPARK_FIRST_FANOUT if hop == 1 else SPARK_FANOUT
+        room = MAX_SPARKS - len(self._sparks)
+        if room <= 0:
+            return
+        for index, other in self._incident[node][:max(0, min(fan, room))]:
+            if other == came_from:
+                continue
+            self._sparks.append([index, other, 0.0, amplitude, kind, hop])
 
     def hit(self, node: int, kind: str) -> None:
         if kind not in KINDS:
             raise ValueError(f"kind: expected {READ!r} or {WRITE!r}, got {kind!r}")
         spec = KINDS[kind]
-        limit = min(self.hops, spec["hops"])
-        seen = {node}
-        frontier = [node]
-        for hop in range(limit):
-            amplitude = HOP_AMPLITUDE[min(hop, len(HOP_AMPLITUDE) - 1)] * spec["scale"]
-            if hop == 0:
-                # Apply hop 0 immediately
-                for target in frontier:
-                    if amplitude >= float(self.energy[target]):
-                        self.energy[target] = amplitude
-                        self.decay[target] = KINDS[kind]["decay"]
-                        self.kind_of[target] = kind
-            else:
-                # Schedule later hops
-                for target in frontier:
-                    self._pending.append(
-                        (self._clock + hop * HOP_DELAY, target, amplitude, kind))
-            nxt = []
-            for current in frontier:
-                for other in self.graph.adjacency[current]:
-                    if other not in seen:
-                        seen.add(other)
-                        nxt.append(other)
-            frontier = nxt
-            if not frontier:
-                break
+        amplitude = HOP_AMPLITUDE[0] * spec["scale"]
+        if amplitude >= float(self.energy[node]):
+            self.energy[node] = amplitude
+            self.decay[node] = spec["decay"]
+            self.kind_of[node] = kind
+        self._emit(node, HOP_AMPLITUDE[1] * spec["scale"], kind, 1, came_from=-1)
 
     def advance(self, dt: float) -> None:
         self._clock += dt
-        due = [p for p in self._pending if p[0] <= self._clock]
-        if due:
-            self._pending = [p for p in self._pending if p[0] > self._clock]
-            for _, node, amplitude, kind in due:
+
+        # Advance the sparks. One that reaches its far end fires that node and
+        # hands the signal on, weaker — the cascade is carried by the particles
+        # rather than scheduled, so distant nodes light in sequence.
+        if self._sparks:
+            arrived, travelling = [], []
+            for spark in self._sparks:
+                spark[2] += SPARK_SPEED * dt
+                (arrived if spark[2] >= 1.0 else travelling).append(spark)
+            self._sparks = travelling
+            for index, node, _progress, amplitude, kind, hop in arrived:
                 if amplitude >= float(self.energy[node]):
                     self.energy[node] = amplitude
                     self.decay[node] = KINDS[kind]["decay"]
                     self.kind_of[node] = kind
+                a, b = self.graph.edges[index]
+                self._emit(node, amplitude * (HOP_AMPLITUDE[2] / HOP_AMPLITUDE[1]),
+                           kind, hop + 1, came_from=a if node == b else b)
 
         self.energy *= np.exp(-dt / self.decay).astype(np.float32)
         self.energy[self.energy < QUIET / 10] = 0.0

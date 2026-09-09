@@ -9,6 +9,7 @@ against its own background.
 from __future__ import annotations
 
 import io
+import math
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -20,8 +21,8 @@ from .sim import Sim
 BASE_RADIUS = 0.9
 DEGREE_RADIUS = 0.55
 PULSE_RADIUS = 10.0
-ELECTRON_RADIUS = 0.8
-ELECTRON_GROWTH = 1.6
+ELECTRON_RADIUS = 0.5
+ELECTRON_GROWTH = 1.0
 EDGE_DIM = 0.55
 # Edges brighten with the energy at their ends. Without this the wave lit the
 # nodes and left the links between them flat, so a pulse read as dots blinking
@@ -32,6 +33,13 @@ EDGE_RAMP_STEPS = 16
 # 1.00x its resting peak — no contrast at all, which is why reads could not be
 # seen however large the pulse got. At 0.55 the same read reads 1.47x.
 AMBIENT_DIM = 0.55
+# Ambient electrons are the quiet traffic; sparks are the signal. Sparks are
+# drawn brighter and larger so the eye follows them along the connection.
+SPARK_RADIUS = 2.2
+SPARK_GROWTH = 2.6
+# The whole cluster turns slowly, so it reads as a body in space rather than a
+# flat diagram. Radians per second.
+SPIN_RATE = 0.035
 
 # Radii are quoted against this width and scaled to whatever canvas is in use,
 # so changing `size` changes sharpness rather than how big anything looks.
@@ -73,13 +81,17 @@ def blend(a: str, b: str, t: float) -> tuple[int, int, int]:
 
 
 def frame(graph: Graph, sim: Sim, pulses: Pulses,
-          palette: dict[str, str], size: tuple[int, int]) -> bytes:
+          palette: dict[str, str], size: tuple[int, int],
+          spin: float = 0.0) -> bytes:
     img = Image.new("RGB", size, _rgb(palette["bg"]))
     draw = ImageDraw.Draw(img)
     scale = size[0] / REFERENCE_WIDTH
     cx, cy = size[0] / 2.0, size[1] / 2.0
-    pos = [((x - cx) * VIEW_SCALE + cx, (y - cy) * VIEW_SCALE + cy)
-           for x, y in sim.pos.tolist()]
+    cos_s, sin_s = math.cos(spin), math.sin(spin)
+    pos = []
+    for x, y in sim.pos.tolist():
+        dx, dy = (x - cx) * VIEW_SCALE, (y - cy) * VIEW_SCALE
+        pos.append((cx + dx * cos_s - dy * sin_s, cy + dx * sin_s + dy * cos_s))
     energy = pulses.energy
 
     # 2,523 edges at full strength read as a grey wash over the text, so the
@@ -112,6 +124,15 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
         r = (ELECTRON_RADIUS + ELECTRON_GROWTH * hot) * scale
         colour = ramp[int(max(0.0, min(1.0, hot)) * (ELECTRON_RAMP_STEPS - 1))]
         draw.ellipse([x - r, y - r, x + r, y + r], fill=colour)
+
+    spark_colour = _rgb(palette["electron"])
+    for edge_index, t, amplitude in pulses.sparks():
+        a, b = graph.edges[edge_index]
+        ax, ay = pos[a]
+        bx, by = pos[b]
+        sx, sy = ax + (bx - ax) * t, ay + (by - ay) * t
+        r = (SPARK_RADIUS + SPARK_GROWTH * min(1.0, amplitude)) * scale
+        draw.ellipse([sx - r, sy - r, sx + r, sy + r], fill=spark_colour)
 
     muted, accent, bright = palette["muted"], palette["accent"], palette["accent_bright"]
     ambient_node = blend(muted, palette["bg"], AMBIENT_DIM)

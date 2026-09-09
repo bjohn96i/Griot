@@ -20,7 +20,7 @@ from . import graph as graph_module
 from . import kitty, settings
 from .events import Spool, resolve as resolve_events
 from .pulse import Pulses
-from .render import frame
+from .render import SPIN_RATE, frame
 from .sim import Sim
 
 FOCUS_POLL_SECONDS = 1.0
@@ -53,6 +53,7 @@ class Brain:
         self.fps = float(cfg["fps_idle"])
         self._focused = True
         self._focus_checked = 0.0
+        self._spin = 0.0
 
     def _refresh_focus(self, now: float) -> None:
         if now - self._focus_checked >= FOCUS_POLL_SECONDS:
@@ -86,8 +87,10 @@ class Brain:
         step = 1.0 / self.fps
         self.sim.step(step)
         self.pulses.advance(step)
+        self._spin += SPIN_RATE * step
         self.client.send_png(
-            frame(self.graph, self.sim, self.pulses, theme.PALETTE, self.cfg["size"]))
+            frame(self.graph, self.sim, self.pulses, theme.PALETTE, self.cfg["size"],
+                  spin=self._spin))
 
     def run(self) -> None:
         while True:

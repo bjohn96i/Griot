@@ -3,6 +3,7 @@ import pytest
 
 from griot.brain import graph as g
 from griot.brain.pulse import (ELECTRONS_PER_EDGE, HOP_AMPLITUDE, KINDS, READ,
+                               SPARK_SPEED,
                                WRITE, Pulses)
 
 
@@ -25,12 +26,36 @@ def test_a_write_puts_full_energy_on_the_hit_node():
 
 
 def test_the_wave_reaches_neighbours_at_declining_amplitude():
+    """Hops are carried by sparks now, so this needs real travel time: at
+    SPARK_SPEED edges per second a hop takes 1/SPARK_SPEED seconds."""
     p = Pulses(chain(5))
     p.hit(0, WRITE)
-    for _ in range(30):                      # 0.3s at dt=0.01 covers 2 hops
+    for _ in range(int(3.5 / SPARK_SPEED / 0.01)):
         p.advance(0.01)
-    assert p.energy[1] > p.energy[2] > p.energy[3]
+    assert p.energy[0] > p.energy[1] > p.energy[2] > p.energy[3]
     assert p.energy[1] <= HOP_AMPLITUDE[1]
+
+
+def test_neighbours_do_not_all_light_at_once():
+    """The point of spark-carried hops: a hub's neighbours fire in sequence as
+    each spark lands, not simultaneously on a shared timer."""
+    star = 12
+    names = [f"N{i}" for i in range(star)]
+    edges = [(0, i) for i in range(1, star)]
+    adjacency = [[] for _ in range(star)]
+    for a, b in edges:
+        adjacency[a].append(b)
+        adjacency[b].append(a)
+    graph = g.Graph(names=names, paths=[None] * star, edges=edges,
+                    degree=[len(x) for x in adjacency], by_path={},
+                    adjacency=adjacency, fingerprint="test")
+    p = Pulses(graph, hops=3)
+    p.hit(0, WRITE)
+    assert p.sparks(), "a hit must put sparks on the wire"
+    for _ in range(10):
+        p.advance(0.01)
+    assert float(p.energy[1:].max()) == 0.0, \
+        "no neighbour may light before a spark has had time to reach it"
 
 
 def test_the_wave_dies_at_the_hop_limit():
@@ -101,18 +126,19 @@ def test_a_read_after_a_write_does_not_steal_its_identity():
     assert p.kind_of[0] == WRITE, "the weaker read must not steal the write's colour"
 
 
-def test_a_weaker_scheduled_hit_does_not_steal_a_stronger_ones_identity():
-    """Same shape as the hop-0 case, but in advance()'s pending-application
-    loop (pulse.py:85-87): two hop hits due on the same tick, processed in
-    list order. The stronger one must keep its decay/kind even though it is
-    applied first and the weaker one is applied after it."""
+def test_a_weaker_arriving_spark_does_not_steal_a_stronger_ones_identity():
+    """Two sparks landing on the same node in the same tick. The stronger must
+    keep its decay and kind even if the weaker is applied after it."""
     p = Pulses(chain(3))
     node = 1
-    p._pending = [
-        (0.0, node, 1.0, WRITE),   # stronger, processed first
-        (0.0, node, 0.3, READ),    # weaker, processed second
+    edge = 0
+    p._sparks = [
+        [edge, node, 1.0, 1.0, WRITE, 1],   # stronger, processed first
+        [edge, node, 1.0, 0.3, READ, 1],    # weaker, processed second
     ]
     p.advance(0.0)
     assert p.energy[node] == pytest.approx(1.0)
     assert p.decay[node] == pytest.approx(KINDS[WRITE]["decay"])
     assert p.kind_of[node] == WRITE
+
+
