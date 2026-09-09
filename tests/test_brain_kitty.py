@@ -1,7 +1,6 @@
 """The kitty remote-control client, against a fake socket that records the wire."""
 import json
 import os
-import select
 import shutil
 import socket
 import tempfile
@@ -138,16 +137,36 @@ def test_focus_stays_correct_when_interleaved_with_frames(fake_kitty):
 
 
 def test_frames_do_not_leave_acks_unread(fake_kitty):
-    """Measured on kitty 0.48.2: acks accumulate at ~15 bytes a frame into an
-    8 KB socket buffer, and at 15fps the connection wedges after ~35s — which
-    stalls kitty's own writes, not just ours."""
+    """Measured on kitty 0.48.2: undrained acks accumulate at ~15 bytes a
+    frame into an 8 KB socket buffer, wedging the connection after ~35s at
+    15fps — which stalls kitty's own writes, not just ours.
+
+    The bound, not zero: the drain runs right after sendall, so the ack for
+    the frame just sent is still in flight. One pending ack is harmless;
+    fifty is the bug.
+    """
     address, _, _ = fake_kitty
     client = kitty.KittyBackground(address)
     for _ in range(50):
         client.send_png(os.urandom(2000))
-    time.sleep(0.1)
-    ready, _, _ = select.select([client.sock], [], [], 0.2)
-    assert not ready, "acks are accumulating unread in the socket buffer"
+    time.sleep(0.2)
+
+    pending = b""
+    client.sock.setblocking(False)
+    try:
+        while True:
+            chunk = client.sock.recv(1 << 16)
+            if not chunk:
+                break
+            pending += chunk
+    except BlockingIOError:
+        pass
+    finally:
+        client.sock.settimeout(client.timeout)
+
+    assert len(pending) < 200, (
+        f"acks are accumulating unread: {len(pending)} bytes after 50 frames "
+        "(50 undrained acks are ~1.3 KB and fill the 8 KB buffer)")
     client.close()
 
 
