@@ -656,8 +656,8 @@ async def test_css_driven_surfaces_follow_the_configured_theme(tmp_path, app_fac
         theme.activate("vibranium-night")
 
 
-async def test_vault_writes_click_the_drive(tmp_path, monkeypatch):
-    """`t` and `p` both write to disk, so both should be audible.
+async def test_vault_writes_and_reads_drive_the_disk_sounds(tmp_path, monkeypatch):
+    """Writes burst, reads tap, and both go through the one-shot gain.
 
     The tasks pane is its own process in the real layout, so it installs its
     own engine in on_mount — this drives that path rather than pre-installing.
@@ -674,7 +674,7 @@ async def test_vault_writes_click_the_drive(tmp_path, monkeypatch):
             return True
 
         def play(self, path, volume, loop=False):
-            self.played.append(path.name)
+            self.played.append((path.name, round(volume, 3)))
             return type("H", (), {"poll": lambda s: 0, "stop": lambda s: None})()
 
         def kill(self, handle):
@@ -685,7 +685,70 @@ async def test_vault_writes_click_the_drive(tmp_path, monkeypatch):
     monkeypatch.setattr(sound, "MUTE_FLAG", tmp_path / "muted")
     monkeypatch.setattr(sound, "ensure_assets", lambda *a, **k: {
         "whir": tmp_path / "w.wav", "seek": tmp_path / "s.wav",
-        "clicks": [tmp_path / "c1.wav"]})
+        "clicks": [tmp_path / "click1.wav"],
+        "writes": [tmp_path / "write1.wav"],
+        "reads": [tmp_path / "read1.wav"]})
+
+    cfg = _cfg(tmp_path)
+    cfg = Config(**{**cfg.__dict__, "sound": {"enabled": True, "clicks": True,
+                                              "volume": 0.15}})
+    _task(tmp_path / "Tasks", "Alpha.md")
+    app = TasksApp(config=cfg, tmux_runner=lambda cmd: None)
+    try:
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            eng = sound.engine()
+            assert eng is not None, "the tasks pane must install its own engine"
+            assert eng.cfg["whir"] is False and eng.cfg["seek"] is False, \
+                "ambient sound belongs to the status pane only"
+            assert eng._ticks is False, "only one pane owns the idle ticker"
+
+            # 0.15 * 1.8 = 0.27: transients ride above the whir, not under it
+            assert eng.one_shot_volume == 0.27
+            assert rec.played == [("read1.wav", 0.27)], \
+                f"startup scan reads every note: {rec.played}"
+
+            eng._last.clear()
+            await pilot.press("t")
+            assert rec.played[-1] == ("write1.wav", 0.27), rec.played
+            eng._last.clear()
+            await pilot.press("p")
+            assert rec.played[-1] == ("write1.wav", 0.27), rec.played
+            assert [n for n, _ in rec.played] == \
+                ["read1.wav", "write1.wav", "write1.wav"], rec.played
+    finally:
+        app.exit()
+        sound.shutdown()
+    assert (tmp_path / "Tasks" / "Alpha.md").read_text().count("Last Progress") == 1
+
+
+async def test_an_automatic_rescan_stays_silent(tmp_path, monkeypatch):
+    """The 5s poll rescans on any signature change — often the user's own
+    write, which already sounded. Only human-asked reads are audible."""
+    from griot import sound
+
+    played = []
+
+    class Recorder:
+        supports_loop = True
+
+        def available(self):
+            return True
+
+        def play(self, path, volume, loop=False):
+            played.append(path.name)
+            return type("H", (), {"poll": lambda s: 0, "stop": lambda s: None})()
+
+        def kill(self, handle):
+            pass
+
+    monkeypatch.setattr(sound, "best_player", Recorder)
+    monkeypatch.setattr(sound, "MUTE_FLAG", tmp_path / "muted")
+    monkeypatch.setattr(sound, "ensure_assets", lambda *a, **k: {
+        "whir": tmp_path / "w.wav", "seek": tmp_path / "s.wav",
+        "clicks": [tmp_path / "click1.wav"],
+        "writes": [tmp_path / "write1.wav"],
+        "reads": [tmp_path / "read1.wav"]})
 
     cfg = _cfg(tmp_path)
     cfg = Config(**{**cfg.__dict__, "sound": {"enabled": True, "clicks": True}})
@@ -693,21 +756,18 @@ async def test_vault_writes_click_the_drive(tmp_path, monkeypatch):
     app = TasksApp(config=cfg, tmux_runner=lambda cmd: None)
     try:
         async with app.run_test() as pilot:
-            await pilot.pause(0.1)
+            await pilot.pause(0.2)
             eng = sound.engine()
-            assert eng is not None, "the tasks pane must install its own engine"
-            assert eng.cfg["whir"] is False and eng.cfg["seek"] is False, \
-                "ambient sound belongs to the status pane only"
-            assert eng._ticks is False, "only one pane owns the idle ticker"
-            await pilot.press("t")
-            assert rec.played == ["c1.wav"], rec.played
-            eng._last_click = 0.0          # step past the debounce deliberately
-            await pilot.press("p")
-            assert rec.played == ["c1.wav", "c1.wav"], rec.played
+            played.clear()
+            eng._last.clear()
+            _task(tmp_path / "Tasks", "Beta.md")     # something else changed the dir
+            app._poll()                              # what the 5s timer calls
+            await pilot.pause(0.1)
+            assert played == [], f"an automatic rescan must not chatter: {played}"
+            assert len(app.notes) == 2, "but it must still have rescanned"
     finally:
         app.exit()
         sound.shutdown()
-    assert (tmp_path / "Tasks" / "Alpha.md").read_text().count("Last Progress") == 1
 
 
 # ------------------------------------------------------------- drive footer ----

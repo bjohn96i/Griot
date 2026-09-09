@@ -284,13 +284,14 @@ Dataterm can sound like the machine it looks like. Off unless you ask for it:
 
 ```toml
 [sound]
-enabled   = true    # default false — nothing plays until you set this
-volume    = 0.15    # 0.0-1.0
-whir      = true    # the ambient platter loop
-seek      = true    # head chatter when a status flips
-clicks    = true    # lone actuator thunks
-click_min = 4.0     # idle tick interval, randomised in [min, max] seconds
-click_max = 20.0
+enabled       = true   # default false — nothing plays until you set this
+volume        = 0.15   # 0.0-1.0, the ambient reference level
+whir          = true   # the ambient platter loop
+seek          = true   # head chatter when a status flips
+clicks        = true   # the actuator family: idle tick, write burst, read tap
+click_min     = 4.0    # idle tick interval, randomised in [min, max] seconds
+click_max     = 20.0
+one_shot_gain = 1.8    # transients play at volume x gain, clamped to 1.0
 ```
 
 `m` in the status pane mutes and unmutes it live, and the footer docked at the bottom
@@ -303,15 +304,85 @@ an in-memory flag would only silence half the drive. It also means mute survives
 `griot restart`: if you silenced it before a call, it stays silenced, and the footer is
 there to tell you why it is quiet. One `stat` per one-shot is the whole cost.
 
-**Three sounds.** The *whir* is the ambient platter loop. A *seek* is a burst of head
-chatter, fired from the same `excite()` hook that quickens the heartbeat, so it tracks
-a status flip. A *click* is one lone actuator thunk — it fires on an idle ticker at a
-randomised interval, and on a real vault write (`t` touch, `p` priority), so the drive
-clicks when the disk is genuinely being written to.
+**The sounds, and what earns them:**
+
+| Sound | Shape | Fires on |
+|---|---|---|
+| *whir* | continuous platter loop | always, while the pane is up |
+| *seek* | ~350ms of head chatter | the `excite()` hook — a status flipped |
+| *click* | one lone thunk, 45ms | the idle ticker, at a randomised interval |
+| *write* | 3-6 impacts over 290-460ms, then the arm settling | a real vault write — `t` touch, `p` cycle priority |
+| *read* | 2-3 lighter, higher taps, ~150ms | a real vault read — opening a task's detail view, the startup scan, `r` force rescan |
+
+An *automatic* rescan stays silent. The 5s poll only rescans when the directory
+signature changed, which is usually your own write — and that already sounded.
+
+**Transients need lifting.** A click is only 0.32x the whir's RMS at the same volume,
+so one tick under a continuous bed is nearly inaudible. `one_shot_gain` (default 1.8x,
+clamped to 1.0) applies to seeks, clicks, writes and reads but *not* the whir, so the
+ambient loop stays the reference level and everything else rides above it. At
+`volume = 0.15` that puts one-shots at 0.27.
+
+`clicks = false` silences the whole actuator family — idle tick, write and read. If you
+want writes and reads without random idle ticking, leave `clicks` on and push
+`click_max` out to an hour.
 
 The ambient sounds belong to the status pane; the tasks pane installs a click-only
-engine (`whir` and `seek` off, `ticker=False`) so its own writes are audible without
-a second platter loop or a double idle tick.
+engine (`whir` and `seek` off, `ticker=False`) so its own writes and reads are audible
+without a second platter loop or a double idle tick.
+
+### Hearing Claude work
+
+Griot's own panes only ever see their *own* file operations, which is a small fraction
+of what happens to the vault. `scanner.py`'s watch is `tasks_dir/*.md`, non-recursive —
+so a note Claude writes under `Decisions/` or `Meetings/` is never noticed, and a read
+leaves nothing to detect after the fact. `bin/griot-disk` closes that: wire it to Claude
+Code `PostToolUse` hooks in `~/.claude/settings.json` and the drive reacts to the work
+actually being done.
+
+```json
+{"hooks": {"PostToolUse": [
+  {"matcher": "Read|Grep|Glob|NotebookRead",
+   "hooks": [{"type": "command", "command": "$HOME/path/to/Griot/bin/griot-disk read",
+              "async": true}]},
+  {"matcher": "Write|Edit|NotebookEdit",
+   "hooks": [{"type": "command", "command": "$HOME/path/to/Griot/bin/griot-disk write",
+              "async": true}]},
+  {"matcher": "Bash",
+   "hooks": [{"type": "command", "command": "$HOME/path/to/Griot/bin/griot-disk auto",
+              "async": true}]}
+]}}
+```
+
+One player is cached per asset inside the panes rather than created per sound: an
+`AVAudioPlayer` holds its file open for its whole lifetime, and neither dropping the
+reference, nor `stop()`, nor draining an autorelease pool releases it (all three
+measured). Created per one-shot, the idle ticker alone leaked ~10 descriptors a minute.
+Cached and rewound, the open count is bounded by the number of assets.
+
+`async: true` means the hook never blocks a tool call. `auto` reads the hook's JSON on
+stdin and classifies a Bash command: write markers win, so `sed -i`, a heredoc, a
+redirect, `mv`/`cp`/`rm`, or `git commit`/`git add` burst, while `cat`, `sed -n`, `grep`
+and `git status` tap. `2>&1` is deliberately not treated as a redirect, so a test run
+reads rather than writes.
+
+The script is plain `sh` with no Python — it runs on every tool call and must not pay
+the ~170ms interpreter startup. Everything it needs comes from
+`~/.cache/griot/sound/params`, which `sound.write_params()` renders on install, so
+`resolve()` stays the only place `enabled`, `volume` and the gain are decided. It
+honours the same mute flag, so `m` in the status pane silences Claude's sounds too.
+No params file means griot has never installed an engine, and the hook stays silent.
+
+A hook is invisible when it succeeds, so there is a way to watch it:
+`touch ~/.cache/griot/sound/debug` and every play appends a line to
+`~/.cache/griot/sound/hook.log` (`rm` the marker to stop). The log is written after
+the debounce, so it records what you actually heard rather than every attempt.
+
+**What this does not cover:** writes you make in Obsidian itself, or that obsidian-git
+and iCloud sync make. Nothing observes those — catching them would need a filesystem
+watcher, which cannot see reads either way. For the same reason griot's *automatic*
+rescan stays silent: with the hook installed, Claude's write already sounded, and
+sounding the rescan too would double up on every edit.
 
 **Nothing ships as an audio file.** A 5400rpm platter is a 90 Hz fundamental, so the
 whir is that sine plus harmonics, a slow bearing wobble and a lowpassed air bed,
@@ -319,8 +390,13 @@ synthesized with the stdlib `wave` module and cached in `~/.cache/griot/sound/`.
 `22050 / 90` is exactly 245 frames, so a whole number of revolutions is a whole number
 of frames — the tone's phase closes at the loop point, and the noise bed, which cannot
 wrap on its own, is cross-faded onto its own tail. Seeks are bandpassed noise bursts on
-a randomised rhythm; clicks are a 2ms noise excitation through two damped resonances,
-in three variants so the idle tick never reads as one sample fired twice.
+a randomised rhythm. Every actuator sound is built from one impact primitive — a 2ms
+noise excitation through two damped resonances, the high ring being the head arm
+hitting its stop and the low one the chassis answering — composed into a lone tick,
+a write burst, or a lighter read tap. Each comes in three variants with jittered
+frequencies and decay times, so nothing ever reads as one sample fired twice. A
+burst is a single baked asset rather than scheduled one-shots, so playing one costs
+one `play()` call and cannot drift or stack.
 
 **Two playback tiers.** With PyObjC installed (a macOS-gated dependency, pulled in by
 default) griot uses AVFoundation's `AVAudioPlayer` with `numberOfLoops = -1`: a real

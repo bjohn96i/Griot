@@ -1,0 +1,81 @@
+#!/bin/sh
+# griot-disk read|write|auto — play the drive sound for one file operation.
+#
+# Wired to Claude Code PostToolUse hooks, because griot's own panes only ever
+# see their own reads and writes: when Claude edits the vault with bash, the
+# tasks pane never learns about it, and a read leaves no trace to detect after
+# the fact. This makes the drive react to the work actually being done.
+#
+# Deliberately plain sh with no Python: it runs on every tool call. Every
+# parameter comes from the file griot.sound.write_params() renders, so
+# resolve() stays the single place volume/gain/enabled are decided.
+#
+#   read|write   play that family
+#   auto         read the hook's JSON on stdin and classify a Bash command
+#
+# GRIOT_DISK_DRYRUN=1 prints the asset it would play and exits without
+# playing or debouncing, so the classifier is testable.
+
+set -u
+
+DIR="${XDG_CACHE_HOME:-$HOME/.cache}/griot/sound"
+PARAMS="$DIR/params"
+
+# No params = griot has never installed an engine, so there is no drive to hear.
+[ -f "$PARAMS" ] || exit 0
+# shellcheck disable=SC1090
+. "$PARAMS"
+
+[ "${enabled:-0}" = "1" ] || exit 0
+[ "${clicks:-0}" = "1" ] || exit 0
+[ -e "$DIR/muted" ] && exit 0
+command -v afplay >/dev/null 2>&1 || exit 0
+
+kind="${1:-}"
+[ -n "$kind" ] || exit 0
+
+if [ "$kind" = "auto" ]; then
+    payload=$(cat 2>/dev/null || true)
+    # Write markers win: a command that both cats and redirects is a write.
+    # `2>/dev/null` and `>&` are not file writes, so they are excluded.
+    if printf '%s' "$payload" | grep -Eq \
+        '(>>|[^0-9&]>[^&]|\btee\b|\bsed -i\b|\bmv\b|\bcp\b|\brm\b|\bmkdir\b|\btouch\b|\bdd\b|<<|git (commit|add|checkout|switch|merge|rebase|reset|stash|apply|push|mv|rm|clone|init|tag))'
+    then
+        kind=write
+    else
+        kind=read
+    fi
+fi
+
+case "$kind" in
+    read|write) ;;
+    *) exit 0 ;;
+esac
+
+# $$ stands in for $RANDOM, which POSIX sh does not have.
+variant=$(( $$ % 3 + 1 ))
+asset="$DIR/${kind}${variant}-${version:-v2}.wav"
+
+if [ "${GRIOT_DISK_DRYRUN:-}" = "1" ]; then
+    printf '%s %s\n' "$kind" "$asset"
+    exit 0
+fi
+
+[ -f "$asset" ] || exit 0
+
+# Atomic sub-second debounce. Parallel tool calls arrive in bursts; without
+# this a single turn would fire a dozen overlapping afplays.
+LOCK="$DIR/.busy-$kind"
+mkdir "$LOCK" 2>/dev/null || exit 0
+( sleep 0.4; rmdir "$LOCK" 2>/dev/null ) >/dev/null 2>&1 &
+
+# `touch ~/.cache/griot/sound/debug` to log what the hook plays. Placed after
+# the debounce so the log records what you actually hear, not every attempt —
+# hooks are invisible when they succeed, so this is the only way to see one.
+if [ -e "$DIR/debug" ]; then
+    printf '%s %-5s %s\n' "$(date +%H:%M:%S)" "$kind" "$(basename "$asset")" \
+        >> "$DIR/hook.log"
+fi
+
+afplay -v "${one_shot_volume:-0.2}" "$asset" >/dev/null 2>&1 &
+exit 0
