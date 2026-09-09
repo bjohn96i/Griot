@@ -19,8 +19,11 @@ from .pulse import READ, Pulses
 from .sim import Sim
 
 BASE_RADIUS = 0.9
-DEGREE_RADIUS = 0.55
-PULSE_RADIUS = 10.0
+DEGREE_RADIUS = 0.40
+# sqrt(degree) is unbounded; a degree-134 hub was 11px of radius before any
+# pulse. Cap the contribution so hubs read as large, not as blobs.
+DEGREE_CAP = 7.0
+PULSE_RADIUS = 3.5
 ELECTRON_RADIUS = 0.5
 ELECTRON_GROWTH = 1.0
 EDGE_DIM = 0.55
@@ -44,8 +47,8 @@ SPIN_RATE = 0.045
 # synthetic depth and the cluster turns about the vertical axis instead, with
 # perspective — the far side draws smaller, dimmer and sweeps a shorter arc,
 # which is what makes it read as a body turning rather than a picture spinning.
-DEPTH_SPREAD = 300.0     # how thick the cluster is, in reference pixels
-FOCAL = 1500.0           # smaller exaggerates the perspective
+DEPTH_SPREAD = 200.0     # how thick the cluster is, in reference pixels
+FOCAL = 4000.0           # smaller exaggerates the perspective
 DEPTH_FADE = 0.45        # how much the far side recedes
 
 # Radii are quoted against this width and scaled to whatever canvas is in use,
@@ -168,8 +171,8 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
     secondary = palette["electron"]
     for i, (x, y) in enumerate(pos):
         e = float(energy[i])
-        r = ((BASE_RADIUS + DEGREE_RADIUS * (graph.degree[i] ** 0.5) + PULSE_RADIUS * e)
-             * scale * nearness[i])
+        r = ((BASE_RADIUS + DEGREE_RADIUS * min(graph.degree[i] ** 0.5, DEGREE_CAP)
+              + PULSE_RADIUS * e) * scale * nearness[i])
         if e > 0.0:
             hot = secondary if pulses.kind_of[i] == READ else bright
             # Ramp from the resting colour, not from `accent`: starting at a
