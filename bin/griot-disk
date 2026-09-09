@@ -20,22 +20,19 @@ set -u
 
 DIR="${XDG_CACHE_HOME:-$HOME/.cache}/griot/sound"
 PARAMS="$DIR/params"
-
-# No params = griot has never installed an engine, so there is no drive to hear.
-[ -f "$PARAMS" ] || exit 0
-# shellcheck disable=SC1090
-. "$PARAMS"
-
-[ "${enabled:-0}" = "1" ] || exit 0
-[ "${clicks:-0}" = "1" ] || exit 0
-[ -e "$DIR/muted" ] && exit 0
-command -v afplay >/dev/null 2>&1 || exit 0
+BRAIN_PARAMS="${XDG_CACHE_HOME:-$HOME/.cache}/griot/brain/params"
 
 kind="${1:-}"
 [ -n "$kind" ] || exit 0
 
-if [ "$kind" = "auto" ]; then
+# Read stdin once: both the brain (which wants the path) and `auto` (which
+# classifies a bash command) need it, and a pipe can only be drained once.
+payload=""
+if [ "$kind" = "auto" ] || [ -f "$BRAIN_PARAMS" ]; then
     payload=$(cat 2>/dev/null || true)
+fi
+
+if [ "$kind" = "auto" ]; then
     # Write markers win: a command that both cats and redirects is a write.
     # `2>/dev/null` and `>&` are not file writes, so they are excluded.
     if printf '%s' "$payload" | grep -Eq \
@@ -51,6 +48,34 @@ case "$kind" in
     read|write) ;;
     *) exit 0 ;;
 esac
+
+# --- brain spool -------------------------------------------------------
+# Deliberately ahead of every sound gate: muting the drive must not blind
+# the brain. Bash-tool calls carry no file_path and so spool nothing.
+if [ -f "$BRAIN_PARAMS" ]; then
+    brain_enabled=$(sed -n 's/^enabled=//p' "$BRAIN_PARAMS")
+    brain_spool=$(sed -n 's/^spool=//p' "$BRAIN_PARAMS")
+    if [ "${brain_enabled:-0}" = "1" ] && [ -n "${brain_spool:-}" ]; then
+        file_path=$(printf '%s' "$payload" \
+            | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 \
+            | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"//; s/"$//')
+        if [ -n "$file_path" ]; then
+            mkdir -p "$(dirname "$brain_spool")"
+            printf '%s %s %s\n' "$(date +%s)" "$kind" "$file_path" >> "$brain_spool"
+        fi
+    fi
+fi
+
+# --- drive sound -------------------------------------------------------
+# No params = griot has never installed an engine, so there is no drive to hear.
+[ -f "$PARAMS" ] || exit 0
+# shellcheck disable=SC1090
+. "$PARAMS"
+
+[ "${enabled:-0}" = "1" ] || exit 0
+[ "${clicks:-0}" = "1" ] || exit 0
+[ -e "$DIR/muted" ] && exit 0
+command -v afplay >/dev/null 2>&1 || exit 0
 
 # $$ stands in for $RANDOM, which POSIX sh does not have.
 variant=$(( $$ % 3 + 1 ))
