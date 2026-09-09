@@ -199,3 +199,19 @@ def test_shutdown_survives_a_dead_socket(tmp_path):
 
     b.client.clear = boom
     b.shutdown()          # must not raise
+
+
+def test_a_firing_pulse_is_drawn_even_when_unfocused(tmp_path):
+    """A read decays in ~0.55s, so skipping frames for one unfocused second
+    loses the whole pulse. Idle-and-unfocused still skips — that is the case
+    worth saving CPU on."""
+    b = brain(tmp_path)
+    b.client.is_focused = False
+    b._focus_checked = 0.0
+    b.tick()
+    assert b.client.frames == [], "idle and unfocused should draw nothing"
+
+    (tmp_path / "events").write_text(f"1 write {b.graph.paths[0]}\n")
+    b._focus_checked = 0.0
+    b.tick()
+    assert b.client.frames, "a pulse must still be drawn while unfocused"

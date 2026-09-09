@@ -77,10 +77,12 @@ class Brain:
         self.fps = float(self.cfg["fps_active"] if now < self.active_until
                          else self.cfg["fps_idle"])
 
-        if not self._focused:
-            # Keep draining the pulse queue — it is the only thing that clears
-            # _pending, and without it an unfocused hour blooms all at once on
-            # return. Skip the simulation and the frame; those are the cost.
+        if not self._focused and not self.pulses.active:
+            # Idle and unfocused is the long-run case and the one worth saving:
+            # skip the simulation and the frame. But if something is FIRING,
+            # draw it even unfocused — a read decays in ~0.55s, so skipping a
+            # single unfocused second silently loses the whole pulse, which is
+            # exactly how reads went missing while focus flickered.
             self.pulses.advance(1.0 / self.fps)
             return
 
