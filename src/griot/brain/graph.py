@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SKIP_DIRS = {".git", ".trash", ".obsidian", ".space", "node_modules"}
-LINK = re.compile(r"\[\[([^\]|#]+)")
+LINK = re.compile(r"\[\[([^\]|#\n]+)")
 FENCE = re.compile(r"^\s*(```|~~~)", re.MULTILINE)
 ILLEGAL = set('\\/:*?"<>|')
 
@@ -57,7 +57,8 @@ def is_artifact(target: str) -> bool:
 
 
 def _normalise(target: str) -> str:
-    target = target.strip().split("/")[-1]
+    target = target.strip().rstrip("\\").strip()
+    target = target.split("/")[-1]
     return target[:-3] if target.lower().endswith(".md") else target
 
 

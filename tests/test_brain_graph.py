@@ -94,3 +94,16 @@ def test_cache_is_reused_until_the_vault_changes(tmp_path):
     after = g.load_or_build(v, cache)
     assert after.fingerprint != first.fingerprint
     assert "C" in after.names
+
+
+def test_a_link_target_cannot_span_lines(tmp_path):
+    v = vault(tmp_path, {"A.md": "an unclosed [[link\nthat runs on\nfor lines]]"})
+    graph = g.build_graph(v)
+    assert not any("\n" in n for n in graph.names)
+
+
+def test_a_table_escaped_alias_resolves_to_the_note(tmp_path):
+    v = vault(tmp_path, {"A.md": "| x | [[Real Note\\|shown]] |", "Real Note.md": ""})
+    graph = g.build_graph(v)
+    assert "Real Note" in graph.names
+    assert not any(n.endswith("\\") for n in graph.names)
