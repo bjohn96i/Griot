@@ -21,6 +21,7 @@ DEGREE_RADIUS = 1.1
 PULSE_RADIUS = 5.0
 ELECTRON_RADIUS = 1.4
 ELECTRON_GROWTH = 2.6
+ELECTRON_RAMP_STEPS = 32
 
 
 def _rgb(hex_colour: str) -> tuple[int, int, int]:
@@ -45,13 +46,16 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
     for a, b in graph.edges:
         draw.line([tuple(pos[a]), tuple(pos[b])], fill=edge_colour)
 
+    ramp = [blend(palette["muted"], palette["accent_bright"], i / (ELECTRON_RAMP_STEPS - 1))
+            for i in range(ELECTRON_RAMP_STEPS)]
+
     for edge_index, t, hot in pulses.electrons():
         a, b = graph.edges[edge_index]
         ax, ay = pos[a]
         bx, by = pos[b]
         x, y = ax + (bx - ax) * t, ay + (by - ay) * t
         r = ELECTRON_RADIUS + ELECTRON_GROWTH * hot
-        colour = blend(palette["muted"], palette["accent_bright"], hot)
+        colour = ramp[int(max(0.0, min(1.0, hot)) * (ELECTRON_RAMP_STEPS - 1))]
         draw.ellipse([x - r, y - r, x + r, y + r], fill=colour)
 
     muted, accent, bright = palette["muted"], palette["accent"], palette["accent_bright"]

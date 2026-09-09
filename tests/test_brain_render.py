@@ -59,3 +59,24 @@ def test_blend_interpolates_between_two_tokens():
     assert blend("#000000", "#FFFFFF", 0.0) == (0, 0, 0)
     assert blend("#000000", "#FFFFFF", 1.0) == (255, 255, 255)
     assert blend("#000000", "#FFFFFF", 0.5) == (127, 127, 127)
+
+
+def test_a_pulse_blooms_the_node_itself():
+    """The electron path alone changes the frame bytes, so a byte-level
+    comparison cannot see whether node bloom works. Sample the node."""
+    graph = two_nodes(False)
+    sim = Sim(graph, SIZE, seed=2)
+    x, y = sim.pos[0]
+
+    def node_pixels(pulses):
+        img = Image.open(io.BytesIO(
+            frame(graph, sim, pulses, theme.PALETTE, SIZE))).convert("RGB")
+        box = img.crop((max(0, int(x) - 6), max(0, int(y) - 6),
+                        min(SIZE[0], int(x) + 7), min(SIZE[1], int(y) + 7)))
+        return sum(sum(px) for px in box.getdata())
+
+    quiet = Pulses(graph)
+    hot = Pulses(graph)
+    hot.hit(0, WRITE)
+    assert node_pixels(hot) > node_pixels(quiet), \
+        "a written node must grow and brighten where it sits"
