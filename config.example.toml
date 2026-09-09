@@ -70,3 +70,14 @@ name = "vibranium-night"
 # PostToolUse hooks; see "Hearing Claude work" in the README.
 # `m` in the status pane mutes; the state is a flag file, so both panes agree
 # and it survives a restart. The footer at the bottom of the pane shows it.
+
+# The vault's link graph as a live background behind the center pane.
+# Requires kitty with remote control — see README "Brain background".
+[brain]
+enabled       = false
+fps_idle      = 3       # frames/sec when nothing is happening
+fps_active    = 15      # frames/sec for `active_window` after a read or write
+active_window = 4.0
+size          = [900, 560]
+hops          = 3       # how far a pulse propagates
+socket        = ""      # optional; overrides KITTY_LISTEN_ON discovery

@@ -39,6 +39,7 @@ class Config:
     theme_colors: dict[str, str] = field(default_factory=dict)
     animation: dict[str, object] = field(default_factory=dict)
     sound: dict[str, object] = field(default_factory=dict)
+    brain: dict[str, object] = field(default_factory=dict)
 
     @property
     def tasks_path(self) -> Path:
@@ -60,6 +61,7 @@ def load_config(path: Path | None = None) -> Config:
     theme_colors = {str(k): str(v) for k, v in theme_raw.get("colors", {}).items()}
     animation = dict(raw.get("animation", {}))
     sound = dict(raw.get("sound", {}))
+    brain = dict(raw.get("brain", {}))
     merged = {**DEFAULTS, **{k: v for k, v in raw.items() if k in DEFAULTS}}
     return Config(
         vault_path=Path(str(merged["vault_path"])).expanduser(),
@@ -78,4 +80,5 @@ def load_config(path: Path | None = None) -> Config:
         theme_colors=theme_colors,
         animation=animation,
         sound=sound,
+        brain=brain,
     )

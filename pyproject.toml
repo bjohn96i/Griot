@@ -9,12 +9,15 @@ dependencies = [
     # Gapless looping for the Dataterm drive (AVAudioPlayer.numberOfLoops = -1).
     # macOS-only; elsewhere griot.sound falls back to afplay, which seams.
     'pyobjc-framework-AVFoundation>=10.0 ; sys_platform == "darwin"',
+    "numpy>=2.0",
+    "pillow>=10.0",
 ]
 
 [project.scripts]
 griot-tasks = "griot.tasks.app:main"
 griot-status = "griot.status.app:main"
 griot-theme = "griot.theme:main"
+griot-brain = "griot.brain.app:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
