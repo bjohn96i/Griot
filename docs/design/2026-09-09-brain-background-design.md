@@ -35,8 +35,9 @@ status panes paint every cell opaque and occlude the background image on their o
 brain appears in the center pane only. No geometry, no pane-width tracking.
 
 **Cost.** Benchmarked at 900x560, `compress_level=1`, on a synthetic **1,082-node /
-4,089-edge** graph — the uncorrected vault count. The real graph is 971 / 2,520, so
-these are upper bounds and the shipped cost should come in under them.
+4,089-edge** graph. The real graph is 1,118 / 2,696 — marginally more nodes than
+benchmarked (+3%, affecting the 5.3 ms repulsion) and far fewer edges (-34%, affecting
+the 12.5 ms render), so the figures below should hold with margin overall.
 
 ```
 repulsion, grid + 3x3 neighbours      5.3 ms   (vs 26.5 ms for O(n^2))
@@ -93,11 +94,21 @@ bin/griot-disk  (PostToolUse hook — exists; already classifies read vs write)
 ### `graph.py` — the vault graph
 
 Nodes are `*.md` files; edges are wikilinks resolved by basename, matching Obsidian.
-Measured on this vault: **971 nodes, 2,520 unique edges, 355 orphans (37%), 147
-unresolved link targets**, hubs to degree 219, median degree 6 among linked notes.
+Measured on this vault: **971 real notes + 147 unresolved targets = 1,118 nodes**, and
+**2,520 resolved + 176 unresolved = 2,696 edges**. 355 orphans (37%), hubs to degree
+219, median degree 6 among linked notes.
 
-- Unresolved targets are **dropped**. Obsidian draws them as phantom nodes, but here
-  they would be nodes that can never be touched — noise with no payoff.
+- Unresolved targets are **kept as phantom nodes**, matching Obsidian. They render
+  hollow — a ring in `muted`, no fill, reduced radius — so a note you have not written
+  yet is visibly distinct from one you have. They can never be hit directly (no file to
+  read or write) but they do carry the propagating wave from their neighbours.
+- **Artifact filter.** Some apparent unresolved targets are parse noise rather than
+  intended notes: the top four on this vault are `Bet-Request-Py\`, `'game'`, `1`, and
+  `Projects.base`, and 117 of the 147 have a single reference. Links inside fenced code
+  blocks are skipped, as are targets that are purely numeric, carry a file extension
+  other than `.md`, or contain characters illegal in a filename. This is a filter, not a
+  reference-count threshold — a genuine note you have linked once but not yet written is
+  exactly the phantom worth drawing.
 - Orphans are **kept**, floating free. They are the dust that makes the field read as
   tissue rather than a diagram.
 - `.trash`, `.obsidian`, `.git` excluded.
@@ -248,8 +259,9 @@ or anywhere else — minus this one feature.
 
 Following the existing `tests/` structure:
 
-- `test_brain_graph` — basename resolution, orphans kept, unresolved dropped, cache
-  invalidation on mtime change
+- `test_brain_graph` — basename resolution, orphans kept, unresolved kept as phantom
+  nodes, artifact filter (code fences, numeric, non-`.md` extensions, illegal
+  characters), cache invalidation on mtime change
 - `test_brain_sim` — seeded determinism, no NaN, kinetic energy stays above zero (the
   temperature floor's actual contract), hub mass scaling
 - `test_brain_pulse` — hop amplitudes 1.0 / 0.55 / 0.30, decay curves, read vs write
@@ -266,4 +278,3 @@ Following the existing `tests/` structure:
 - Per-pane backgrounds — the Textual panes mask themselves for free
 - Node labels, hover, click — it is a background, not a graph explorer
 - Pulses for Bash-tool file writes — no `file_path` in the payload to map
-- Rendering the 147 unresolved link targets
