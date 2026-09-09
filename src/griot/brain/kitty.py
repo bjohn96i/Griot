@@ -17,6 +17,7 @@ import json
 import os
 import select
 import socket
+import time
 import uuid
 
 CHUNK = 2048
@@ -33,12 +34,55 @@ def discover_socket(override: str = "") -> str | None:
 
 
 class KittyBackground:
-    def __init__(self, address: str) -> None:
+    def __init__(self, address: str, timeout: float = 2.0) -> None:
+        self.timeout = timeout
+        self._buf = b""
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(timeout)
         self.sock.connect(address)
 
     def _send(self, payload: dict) -> None:
         self.sock.sendall(b"\x1bP@kitty-cmd" + json.dumps(payload).encode() + b"\x1b\\")
+
+    def _take_messages(self) -> list[dict]:
+        """Parse whole `\\x1bP@kitty-cmd...\\x1b\\\\` frames out of the buffer.
+
+        Buffered rather than one-shot because a reply can arrive split across
+        recv boundaries, or two replies can arrive coalesced in one.
+        """
+        messages = []
+        while b"\x1b\\" in self._buf:
+            head, self._buf = self._buf.split(b"\x1b\\", 1)
+            _, _, body = head.partition(b"\x1bP@kitty-cmd")
+            if not body:
+                continue
+            try:
+                messages.append(json.loads(body))
+            except ValueError:
+                pass
+        return messages
+
+    def _read_available(self, timeout: float) -> None:
+        ready, _, _ = select.select([self.sock], [], [], max(0.0, timeout))
+        if ready:
+            chunk = self.sock.recv(1 << 16)
+            if chunk:
+                self._buf += chunk
+
+    def _discard_acks(self) -> None:
+        """kitty acks every set-background-image stream. Unread, those acks
+        fill the 8 KB socket buffer after ~35s of animation and then block
+        kitty's own writes — measured against kitty 0.48.2.
+        """
+        while True:
+            ready, _, _ = select.select([self.sock], [], [], 0)
+            if not ready:
+                break
+            chunk = self.sock.recv(1 << 16)
+            if not chunk:
+                break
+            self._buf += chunk
+        self._take_messages()
 
     def send_png(self, data: bytes) -> None:
         encoded = base64.b64encode(data).decode()
@@ -46,36 +90,39 @@ class KittyBackground:
         first = True
         for i in range(0, len(encoded), CHUNK):
             message = {"cmd": "set-background-image", "version": VERSION,
-                       "stream_id": stream_id,
+                       "stream_id": stream_id, "no_response": True,
                        "payload": {"data": encoded[i:i + CHUNK], "layout": LAYOUT}}
             if first:
                 message["stream"] = True
                 first = False
             self._send(message)
         self._send({"cmd": "set-background-image", "version": VERSION,
-                    "stream_id": stream_id, "payload": {"layout": LAYOUT}})
+                    "stream_id": stream_id, "no_response": True,
+                    "payload": {"layout": LAYOUT}})
+        self._discard_acks()
 
     def clear(self) -> None:
         """Drop the background image so a dead animator leaves no frozen frame."""
-        self._send({"cmd": "set-background-image", "version": VERSION,
+        self._send({"cmd": "set-background-image", "version": VERSION, "no_response": True,
                     "payload": {"data": "none", "layout": LAYOUT}})
+        self._discard_acks()
 
     def focused(self) -> bool:
-        """True when the kitty window has focus. Unreadable replies mean yes."""
+        """True when the kitty window has focus. Anything unreadable means yes
+        — a missing answer must never pause the animation.
+        """
+        self._discard_acks()
         self._send({"cmd": "ls", "version": VERSION, "payload": {}})
-        ready, _, _ = select.select([self.sock], [], [], 0.5)
-        if not ready:
-            return True
-        raw = self.sock.recv(1 << 16)
-        _, _, body = raw.partition(b"\x1bP@kitty-cmd")
-        body = body.split(b"\x1b\\", 1)[0]
-        try:
-            reply = json.loads(body)
-            data = reply.get("data")
-            windows = json.loads(data) if isinstance(data, str) else data
-            return any(_any_focused(w) for w in windows)
-        except (ValueError, TypeError, AttributeError):
-            return True
+        deadline = time.monotonic() + 0.5
+        while True:
+            for message in self._take_messages():
+                verdict = _focus_verdict(message)
+                if verdict is not None:
+                    return verdict
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return True
+            self._read_available(remaining)
 
     def close(self) -> None:
         try:
@@ -92,3 +139,23 @@ def _any_focused(node) -> bool:
     if isinstance(node, list):
         return any(_any_focused(v) for v in node)
     return False
+
+
+def _carries_focus(node) -> bool:
+    if isinstance(node, dict):
+        return "is_focused" in node or any(_carries_focus(v) for v in node.values())
+    if isinstance(node, list):
+        return any(_carries_focus(v) for v in node)
+    return False
+
+
+def _focus_verdict(message: dict) -> bool | None:
+    """None when this message is not a focus answer — an ack, say."""
+    data = message.get("data")
+    try:
+        windows = json.loads(data) if isinstance(data, str) else data
+    except (ValueError, TypeError):
+        return None
+    if not _carries_focus(windows):
+        return None
+    return _any_focused(windows)

@@ -5,6 +5,7 @@ import shutil
 import socket
 import tempfile
 import threading
+import time
 
 import pytest
 
@@ -47,6 +48,8 @@ def fake_kitty():
                         + json.dumps({"ok": True,
                                       "data": json.dumps([{"is_focused": state["focused"]}])}).encode()
                         + b"\x1b\\")
+                elif not message.get("no_response"):
+                    conn.sendall(b"\x1bP@kitty-cmd" + json.dumps({"ok": True}).encode() + b"\x1b\\")
         conn.close()
 
     threading.Thread(target=serve, daemon=True).start()
@@ -113,3 +116,59 @@ def test_focused_reports_false_when_the_window_is_not_focused(fake_kitty):
     client = kitty.KittyBackground(address)
     assert client.focused() is False
     client.close()
+
+
+def test_focus_stays_correct_when_interleaved_with_frames(fake_kitty):
+    """Task 9 shares one connection between frames and focus polls. Acks left
+    in the buffer must not be read as the answer to a later ls."""
+    address, _, state = fake_kitty
+    client = kitty.KittyBackground(address)
+    state["focused"] = False
+    client.send_png(os.urandom(3000))
+    assert client.focused() is False
+    client.send_png(os.urandom(3000))
+    assert client.focused() is False
+    state["focused"] = True
+    assert client.focused() is True
+    client.close()
+
+
+def test_a_reply_split_across_recv_boundaries_is_read_correctly(tmp_path):
+    """Ordinary socket segmentation must not be mistaken for 'no answer'."""
+    directory = tempfile.mkdtemp(prefix="gk", dir="/tmp")
+    address = os.path.join(directory, "s")
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(address)
+    server.listen(1)
+
+    def serve():
+        conn, _ = server.accept()
+        conn.recv(65536)
+        reply = (b"\x1bP@kitty-cmd"
+                 + json.dumps({"ok": True,
+                               "data": json.dumps([{"is_focused": False}])}).encode()
+                 + b"\x1b\\")
+        conn.sendall(reply[:12])
+        time.sleep(0.05)
+        conn.sendall(reply[12:])
+        time.sleep(0.2)
+        conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    client = kitty.KittyBackground(address)
+    try:
+        assert client.focused() is False
+    finally:
+        client.close()
+        server.close()
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def test_only_the_first_chunk_opens_the_stream(fake_kitty):
+    address, received, _ = fake_kitty
+    client = kitty.KittyBackground(address)
+    client.send_png(os.urandom(9000))
+    client.close()
+    streamed = [m for m in received if m.get("stream")]
+    assert len(streamed) == 1, "exactly one message opens the stream"
+    assert received[0].get("stream") is True
