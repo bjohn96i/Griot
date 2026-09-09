@@ -8,6 +8,7 @@ is a note anyone means to write.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ SKIP_DIRS = {".git", ".trash", ".obsidian", ".space", "node_modules"}
 LINK = re.compile(r"\[\[([^\]|#\n]+)")
 FENCE = re.compile(r"^\s*(```|~~~)", re.MULTILINE)
 ILLEGAL = set('\\/:*?"<>|')
+EXTENSION = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,4}$")
 
 
 @dataclass(frozen=True)
@@ -35,25 +37,32 @@ class Graph:
 
 
 def strip_fences(text: str) -> str:
-    """Drop fenced code blocks so `[[...]]` inside them is not a link."""
-    out, fenced = [], False
+    """Drop fenced code blocks so `[[...]]` inside them is not a link.
+
+    An unclosed fence is treated as literal text rather than swallowing the
+    rest of the file: a note in the wild has an odd fence count, and dropping
+    its tail loses real links.
+    """
+    out: list[str] = []
+    pending: list[str] | None = None
     for line in text.splitlines():
         if FENCE.match(line):
-            fenced = not fenced
+            pending = [] if pending is None else None
             continue
-        if not fenced:
-            out.append(line)
+        (out if pending is None else pending).append(line)
+    if pending is not None:
+        out.extend(pending)          # never closed — keep the lines
     return "\n".join(out)
 
 
 def is_artifact(target: str) -> bool:
-    """True for unresolved targets that are parse noise, not intended notes."""
+    """True for unresolved targets that are parse noise or attachments."""
     if not target or target.isdigit():
         return True
     if any(c in ILLEGAL for c in target):
         return True
-    suffix = Path(target).suffix
-    return bool(suffix) and suffix.lower() != ".md"
+    match = EXTENSION.search(target)
+    return bool(match) and match.group(0).lower() != ".md"
 
 
 def _normalise(target: str) -> str:
@@ -63,12 +72,19 @@ def _normalise(target: str) -> str:
 
 
 def fingerprint(vault_path: Path) -> str:
-    """Cheap change detector: note count plus the newest mtime."""
-    count, newest = 0, 0.0
-    for path in _walk(vault_path):
-        count += 1
+    """Cheap change detector: note count, newest mtime, and a digest of the
+    relative paths. The digest is what catches a rename — on macOS that leaves
+    both the count and the newest mtime untouched.
+    """
+    root = Path(vault_path)
+    names: list[str] = []
+    newest = 0.0
+    for path in _walk(root):
+        names.append(str(path.relative_to(root)))
         newest = max(newest, path.stat().st_mtime)
-    return f"{count}:{newest:.0f}"
+    names.sort()
+    digest = hashlib.sha1("\n".join(names).encode()).hexdigest()[:12]
+    return f"{len(names)}:{newest:.0f}:{digest}"
 
 
 def _walk(vault_path: Path):
@@ -98,7 +114,7 @@ def build_graph(vault_path: Path) -> Graph:
         for raw in LINK.findall(strip_fences(text)):
             target = _normalise(raw)
             if target not in index:
-                if target not in real and is_artifact(target):
+                if is_artifact(target):
                     continue
                 index[target] = len(names)
                 names.append(target)

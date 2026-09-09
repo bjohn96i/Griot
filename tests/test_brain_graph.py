@@ -105,5 +105,29 @@ def test_a_link_target_cannot_span_lines(tmp_path):
 def test_a_table_escaped_alias_resolves_to_the_note(tmp_path):
     v = vault(tmp_path, {"A.md": "| x | [[Real Note\\|shown]] |", "Real Note.md": ""})
     graph = g.build_graph(v)
-    assert "Real Note" in graph.names
-    assert not any(n.endswith("\\") for n in graph.names)
+    a, real = graph.names.index("A"), graph.names.index("Real Note")
+    assert graph.edges == [tuple(sorted((a, real)))], \
+        "the escaped pipe must not stop the target resolving — the edge is the proof"
+
+
+def test_an_unclosed_fence_does_not_swallow_the_rest_of_the_file(tmp_path):
+    v = vault(tmp_path, {"A.md": "```\ncode\n\nprose with [[Real Target]]"})
+    assert "Real Target" in g.build_graph(v).names
+
+
+def test_a_decimal_titled_phantom_is_not_mistaken_for_a_file(tmp_path):
+    v = vault(tmp_path, {"A.md": "[[3.2 Release Notes]] [[Diagram.png]]"})
+    names = g.build_graph(v).names
+    assert "3.2 Release Notes" in names, "a dotted title is not an extension"
+    assert "Diagram.png" not in names, "a real attachment extension still drops"
+
+
+def test_a_rename_invalidates_the_cache(tmp_path):
+    v = vault(tmp_path, {"A.md": "[[B]]", "B.md": ""})
+    cache = tmp_path / "graph.json"
+    before = g.load_or_build(v, cache)
+    (v / "B.md").rename(v / "Renamed.md")
+    after = g.load_or_build(v, cache)
+    assert after.fingerprint != before.fingerprint
+    assert "Renamed" in after.names
+    assert str((v / "Renamed.md").resolve()) in after.by_path
