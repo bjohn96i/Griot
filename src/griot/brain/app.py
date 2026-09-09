@@ -32,7 +32,9 @@ FOCUS_POLL_SECONDS = 1.0
 # (15fps) — four times faster while idle, the opposite of "idle drifts
 # calmly, an active burst quickens". A fixed step makes fps control how
 # OFTEN the world advances, not how far.
-SIM_STEP = 1.0 / 15.0   # fixed: fps controls how OFTEN we step, not how far
+# The frame interval IS the timestep: sim.step and pulses.advance are both
+# time-invariant, so a higher frame rate draws the same motion more smoothly
+# rather than running the world faster.
 
 WRITE_IMPULSE = 30.0
 
@@ -71,11 +73,12 @@ class Brain:
             # Keep draining the pulse queue — it is the only thing that clears
             # _pending, and without it an unfocused hour blooms all at once on
             # return. Skip the simulation and the frame; those are the cost.
-            self.pulses.advance(SIM_STEP)
+            self.pulses.advance(1.0 / self.fps)
             return
 
-        self.sim.step(SIM_STEP)
-        self.pulses.advance(SIM_STEP)
+        step = 1.0 / self.fps
+        self.sim.step(step)
+        self.pulses.advance(step)
         self.client.send_png(
             frame(self.graph, self.sim, self.pulses, theme.PALETTE, self.cfg["size"]))
 

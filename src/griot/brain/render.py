@@ -28,6 +28,19 @@ EDGE_DIM = 0.55
 REFERENCE_WIDTH = 900.0
 # The layout fills its box by construction; this pulls it in off the edges.
 VIEW_SCALE = 0.88
+# Electrons ride in `secondary`, deliberately a different hue from the nodes:
+# gold nodes with gold electrons read as one texture. How far the coldest
+# electron is faded toward the background.
+ELECTRON_DIM = 0.6
+# A straight trade, measured on a 1400x875 frame with identical sim state:
+#   level 0  19.0ms  3590 KB
+#   level 1  22.2ms   393 KB
+#   level 2  23.5ms   239 KB
+#   level 4  27.6ms   196 KB
+# Level 1: tried level 2 live and kitty's CPU barely moved (67.5% -> 63.9%,
+# inside the noise) while ours rose, so its cost is texture upload rather than
+# PNG decode. Fewer bytes buy nothing here; keep the cheapest encode.
+PNG_COMPRESS = 1
 ELECTRON_RAMP_STEPS = 32
 PHANTOM_RADIUS_SCALE = 0.7
 
@@ -58,8 +71,12 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
     for a, b in graph.edges:
         draw.line([tuple(pos[a]), tuple(pos[b])], fill=edge_colour)
 
-    ramp = [blend(palette["muted"], palette["accent_bright"], i / (ELECTRON_RAMP_STEPS - 1))
-            for i in range(ELECTRON_RAMP_STEPS)]
+    hot = _rgb(palette["secondary"])
+    back = _rgb(palette["bg"])
+    cold = tuple(int(back[i] + (hot[i] - back[i]) * (1.0 - ELECTRON_DIM)) for i in range(3))
+    ramp = [tuple(int(cold[i] + (hot[i] - cold[i]) * (step / (ELECTRON_RAMP_STEPS - 1)))
+                  for i in range(3))
+            for step in range(ELECTRON_RAMP_STEPS)]
 
     for edge_index, t, hot in pulses.electrons():
         a, b = graph.edges[edge_index]
@@ -89,5 +106,5 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
             draw.ellipse(box, fill=colour)
 
     buf = io.BytesIO()
-    img.save(buf, format="PNG", compress_level=1)
+    img.save(buf, format="PNG", compress_level=PNG_COMPRESS)
     return buf.getvalue()

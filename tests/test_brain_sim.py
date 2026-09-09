@@ -1,4 +1,5 @@
 """The force layout. Its contract is that it never converges and never blows up."""
+import pytest
 import numpy as np
 
 from griot.brain import graph as g
@@ -107,3 +108,26 @@ def test_impulse_pushes_a_nodes_neighbours_outward():
 
     assert spread(shoved) > spread(quiet), \
         "a write must push its neighbours outward, not just jog the node"
+
+
+def test_drift_speed_does_not_depend_on_the_frame_rate():
+    """Raising the frame rate must draw the same motion more smoothly, not run
+    the world faster. Damping and jitter are both applied per step, so before
+    this was fixed the graph drifted 8.83 px/sec at 30fps against 4.49 at 15 —
+    twice the speed, which reads on screen as shimmer rather than smoothness.
+    """
+    def drift(fps: int) -> float:
+        dt = 1.0 / fps
+        sim = Sim(ring(120), (900, 560), seed=1)
+        for _ in range(int(2.0 / dt)):        # two settling seconds
+            sim.step(dt)
+        previous, total = sim.pos.copy(), 0.0
+        for _ in range(fps):                  # one second of frames
+            sim.step(dt)
+            total += float(np.linalg.norm(sim.pos - previous, axis=1).mean())
+            previous = sim.pos.copy()
+        return total
+
+    slow, fast = drift(10), drift(30)
+    assert fast == pytest.approx(slow, rel=0.35), \
+        f"per-second drift must not scale with fps: 10fps={slow:.2f} 30fps={fast:.2f}"

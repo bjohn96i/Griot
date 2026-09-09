@@ -27,6 +27,11 @@ CENTERING = 0.06        # 0.01 pressed 36 nodes flat against the frame
 TEMPERATURE = 20.0
 DAMPING = 0.85
 MAX_SPEED = 40.0
+# The constants above were tuned at this step. Damping is applied per step and
+# the jitter is injected per step, so without correction a higher frame rate
+# runs the world faster rather than drawing it more smoothly — measured 8.83
+# px/sec of drift at 30fps against 4.49 at 15.
+REF_DT = 1.0 / 15.0
 
 
 class Sim:
@@ -78,7 +83,7 @@ class Sim:
             force[idx] = (delta / dist2[..., None]).sum(1) * REPULSION
         return force
 
-    def step(self, dt: float = 0.1) -> None:
+    def step(self, dt: float = REF_DT) -> None:
         force = self._repel()
 
         if self.ea.size:
@@ -89,9 +94,12 @@ class Sim:
             np.add.at(force, self.eb, -pull)
 
         force -= (self.pos - self.pos.mean(0)) * CENTERING
-        force += self.rng.normal(0.0, TEMPERATURE, self.pos.shape)
+        # Random-walk variance accumulates as steps * (T*dt)^2, so holding the
+        # per-second amplitude fixed means scaling T by sqrt(REF_DT / dt).
+        pace = dt / REF_DT
+        force += self.rng.normal(0.0, TEMPERATURE / np.sqrt(pace), self.pos.shape)
 
-        self.vel = (self.vel + force * self.inv_mass[:, None] * dt) * DAMPING
+        self.vel = (self.vel + force * self.inv_mass[:, None] * dt) * (DAMPING ** pace)
         # +eps because np.where evaluates both branches, and a resting node
         # has speed 0 — the discarded branch would still emit a divide warning.
         speed = np.linalg.norm(self.vel, axis=1, keepdims=True) + 1e-9

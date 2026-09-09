@@ -100,10 +100,11 @@ def test_shutdown_clears_the_background(tmp_path):
     assert b.client.cleared == 1
 
 
-def test_the_simulation_advances_by_a_fixed_step_regardless_of_frame_rate(tmp_path):
-    """Frame rate controls how OFTEN the world advances, not how far. With
-    dt = 1/fps the graph drifted 8.60 px/sec at idle against 2.14 px/sec when
-    active — four times faster while idle, the opposite of the intent."""
+def test_the_timestep_follows_the_frame_rate(tmp_path):
+    """The frame interval IS the timestep. The sim is time-invariant, so a
+    higher rate must draw the same motion more smoothly rather than running the
+    world faster — with a fixed 1/15 step per frame the graph drifted 8.83
+    px/sec at 30fps against 4.49 at 15, which reads as shimmer."""
     b = brain(tmp_path)
     steps = []
     b.sim.step = lambda dt: steps.append(dt)
@@ -111,8 +112,9 @@ def test_the_simulation_advances_by_a_fixed_step_regardless_of_frame_rate(tmp_pa
     (tmp_path / "events").write_text(f"1 write {b.graph.paths[0]}\n")
     b.tick()
     assert b.fps == b.cfg["fps_active"], "second tick should be the active rate"
-    assert steps == [pytest.approx(1 / 15), pytest.approx(1 / 15)], \
-        "the step must not vary with the frame rate"
+    assert steps == [pytest.approx(1 / b.cfg["fps_idle"]),
+                     pytest.approx(1 / b.cfg["fps_active"])], \
+        "each tick advances by its own frame interval"
 
 
 class FakeKittyClient:
