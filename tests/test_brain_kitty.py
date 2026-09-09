@@ -1,6 +1,7 @@
 """The kitty remote-control client, against a fake socket that records the wire."""
 import json
 import os
+import select
 import shutil
 import socket
 import tempfile
@@ -48,8 +49,11 @@ def fake_kitty():
                         + json.dumps({"ok": True,
                                       "data": json.dumps([{"is_focused": state["focused"]}])}).encode()
                         + b"\x1b\\")
-                elif not message.get("no_response"):
-                    conn.sendall(b"\x1bP@kitty-cmd" + json.dumps({"ok": True}).encode() + b"\x1b\\")
+                elif "data" not in message.get("payload", {}):
+                    # Real kitty acks the completed stream once even when
+                    # no_response is set — measured on kitty 0.48.2.
+                    conn.sendall(b"\x1bP@kitty-cmd"
+                                 + json.dumps({"ok": True}).encode() + b"\x1b\\")
         conn.close()
 
     threading.Thread(target=serve, daemon=True).start()
@@ -130,6 +134,20 @@ def test_focus_stays_correct_when_interleaved_with_frames(fake_kitty):
     assert client.focused() is False
     state["focused"] = True
     assert client.focused() is True
+    client.close()
+
+
+def test_frames_do_not_leave_acks_unread(fake_kitty):
+    """Measured on kitty 0.48.2: acks accumulate at ~15 bytes a frame into an
+    8 KB socket buffer, and at 15fps the connection wedges after ~35s — which
+    stalls kitty's own writes, not just ours."""
+    address, _, _ = fake_kitty
+    client = kitty.KittyBackground(address)
+    for _ in range(50):
+        client.send_png(os.urandom(2000))
+    time.sleep(0.1)
+    ready, _, _ = select.select([client.sock], [], [], 0.2)
+    assert not ready, "acks are accumulating unread in the socket buffer"
     client.close()
 
 
