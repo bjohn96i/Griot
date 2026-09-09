@@ -35,9 +35,9 @@ status panes paint every cell opaque and occlude the background image on their o
 brain appears in the center pane only. No geometry, no pane-width tracking.
 
 **Cost.** Benchmarked at 900x560, `compress_level=1`, on a synthetic **1,082-node /
-4,089-edge** graph. The real graph is 1,118 / 2,696 — marginally more nodes than
-benchmarked (+3%, affecting the 5.3 ms repulsion) and far fewer edges (-34%, affecting
-the 12.5 ms render), so the figures below should hold with margin overall.
+4,089-edge** graph. The real graph is 986 / 2,523 — fewer nodes (-9%, affecting the
+5.3 ms repulsion) and far fewer edges (-38%, affecting the 12.5 ms render), so the
+figures below are upper bounds with real margin.
 
 ```
 repulsion, grid + 3x3 neighbours      5.3 ms   (vs 26.5 ms for O(n^2))
@@ -94,9 +94,15 @@ bin/griot-disk  (PostToolUse hook — exists; already classifies read vs write)
 ### `graph.py` — the vault graph
 
 Nodes are `*.md` files; edges are wikilinks resolved by basename, matching Obsidian.
-Measured on this vault: **971 real notes + 147 unresolved targets = 1,118 nodes**, and
-**2,520 resolved + 176 unresolved = 2,696 edges**. 355 orphans (37%), hubs to degree
-219, median degree 6 among linked notes.
+Measured on this vault by the shipped builder: **971 real notes + 15 phantom = 986
+nodes**, **2,523 edges**, 352 orphans (36%), hubs to degree 134 (`SAPI Caching
+(SWE-4336)`), median degree 5 among linked notes.
+
+> Corrected 2026-09-09 during implementation. The earlier figures here (1,118 nodes /
+> 147 phantom / 2,696 edges / degree 219) were wrong in three ways: they counted
+> attachments as notes (87 `Pasted image *.png` embeds, 9 `.base` view files, 8 PDFs
+> and images), they counted `[[...]]` occurrences inside fenced code blocks, and the
+> degree figure was measured per link occurrence while the builder dedupes edges.
 
 - Unresolved targets are **kept as phantom nodes**, matching Obsidian. They render
   hollow — a ring in `muted`, no fill, reduced radius — so a note you have not written
