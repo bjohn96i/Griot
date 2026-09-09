@@ -18,7 +18,7 @@ HOP_AMPLITUDE = (1.0, 0.55, 0.30)
 # A hop is carried by a spark travelling the connection, not by a timer: the
 # old fixed delay lit every neighbour of a hub simultaneously, which reads as a
 # ring flashing on rather than a signal propagating.
-SPARK_SPEED = 2.0         # edges per second
+SPARK_SPEED = 2.6         # edges per second
 SPARK_FANOUT = 3          # onward connections a spark lights from where it lands
 SPARK_FIRST_FANOUT = 24   # from the originating node; a degree-134 hub would
                           # otherwise spawn 134 sparks and then thousands
@@ -29,8 +29,8 @@ BOOST_SPEED = 0.9
 QUIET = 0.01
 
 KINDS = {
-    WRITE: {"scale": 1.0, "decay": 1.4, "hops": 3},
-    READ: {"scale": 0.85, "decay": 1.0, "hops": 2},
+    WRITE: {"scale": 1.0, "decay": 0.75, "hops": 5},
+    READ: {"scale": 0.85, "decay": 0.55, "hops": 5},
 }
 
 

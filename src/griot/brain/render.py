@@ -39,7 +39,14 @@ SPARK_RADIUS = 2.2
 SPARK_GROWTH = 2.6
 # The whole cluster turns slowly, so it reads as a body in space rather than a
 # flat diagram. Radians per second.
-SPIN_RATE = 0.035
+SPIN_RATE = 0.045
+# Rotating a flat layout in-plane reads as a turntable. Nodes get a stable
+# synthetic depth and the cluster turns about the vertical axis instead, with
+# perspective — the far side draws smaller, dimmer and sweeps a shorter arc,
+# which is what makes it read as a body turning rather than a picture spinning.
+DEPTH_SPREAD = 300.0     # how thick the cluster is, in reference pixels
+FOCAL = 1500.0           # smaller exaggerates the perspective
+DEPTH_FADE = 0.45        # how much the far side recedes
 
 # Radii are quoted against this width and scaled to whatever canvas is in use,
 # so changing `size` changes sharpness rather than how big anything looks.
@@ -62,6 +69,18 @@ ELECTRON_DIM = 0.6
 PNG_COMPRESS = 1
 ELECTRON_RAMP_STEPS = 32
 PHANTOM_RADIUS_SCALE = 0.7
+
+
+_DEPTH_CACHE: dict[str, np.ndarray] = {}
+
+
+def _depth(graph: Graph) -> np.ndarray:
+    """A stable pseudo-random z per node, so the cluster has thickness."""
+    key = f"{graph.fingerprint}:{graph.n}"
+    if key not in _DEPTH_CACHE:
+        rng = np.random.default_rng(abs(hash(key)) % (2 ** 32))
+        _DEPTH_CACHE[key] = rng.random(graph.n).astype(np.float32) * 2.0 - 1.0
+    return _DEPTH_CACHE[key]
 
 
 def _rgb(hex_colour: str) -> tuple[int, int, int]:
@@ -88,10 +107,15 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
     scale = size[0] / REFERENCE_WIDTH
     cx, cy = size[0] / 2.0, size[1] / 2.0
     cos_s, sin_s = math.cos(spin), math.sin(spin)
-    pos = []
-    for x, y in sim.pos.tolist():
-        dx, dy = (x - cx) * VIEW_SCALE, (y - cy) * VIEW_SCALE
-        pos.append((cx + dx * cos_s - dy * sin_s, cy + dx * sin_s + dy * cos_s))
+    dx = (sim.pos[:, 0] - cx) * VIEW_SCALE
+    dy = (sim.pos[:, 1] - cy) * VIEW_SCALE
+    z = _depth(graph) * DEPTH_SPREAD * scale
+    turned_x = dx * cos_s - z * sin_s
+    turned_z = dx * sin_s + z * cos_s
+    near = (FOCAL * scale) / (FOCAL * scale + turned_z)
+    pos = list(zip((cx + turned_x * near).tolist(), (cy + dy * near).tolist()))
+    nearness = near.tolist()
+    lo, span = float(near.min()), max(float(near.max() - near.min()), 1e-6)
     energy = pulses.energy
 
     # 2,523 edges at full strength read as a grey wash over the text, so the
@@ -136,6 +160,7 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
 
     muted, accent, bright = palette["muted"], palette["accent"], palette["accent_bright"]
     ambient_node = blend(muted, palette["bg"], AMBIENT_DIM)
+    back = _rgb(palette["bg"])
     # Reads flash in the electron blue-white, not `secondary`. Measured against
     # the hub with kitty's 0.85 tint applied: rust lifted the neighbourhood
     # 2.1%, which is invisible, because it is DARKER than the ambient gold.
@@ -143,7 +168,8 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
     secondary = palette["electron"]
     for i, (x, y) in enumerate(pos):
         e = float(energy[i])
-        r = (BASE_RADIUS + DEGREE_RADIUS * (graph.degree[i] ** 0.5) + PULSE_RADIUS * e) * scale
+        r = ((BASE_RADIUS + DEGREE_RADIUS * (graph.degree[i] ** 0.5) + PULSE_RADIUS * e)
+             * scale * nearness[i])
         if e > 0.0:
             hot = secondary if pulses.kind_of[i] == READ else bright
             # Ramp from the resting colour, not from `accent`: starting at a
@@ -152,13 +178,14 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
             colour = blend_rgb(ambient_node, _rgb(hot), e)
         else:
             colour = ambient_node
+        # the far side of the cluster recedes into the background
+        colour = blend_rgb(back, colour,
+                           1.0 - DEPTH_FADE * (1.0 - (nearness[i] - lo) / span))
         if graph.paths[i] is None:
             pr = r * PHANTOM_RADIUS_SCALE
-            box = [x - pr, y - pr, x + pr, y + pr]
-            draw.ellipse(box, outline=colour)     # phantom: a ring, never filled
+            draw.ellipse([x - pr, y - pr, x + pr, y + pr], outline=colour)
         else:
-            box = [x - r, y - r, x + r, y + r]
-            draw.ellipse(box, fill=colour)
+            draw.ellipse([x - r, y - r, x + r, y + r], fill=colour)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", compress_level=PNG_COMPRESS)

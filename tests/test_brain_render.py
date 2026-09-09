@@ -1,6 +1,7 @@
 """Frames are PNG bytes in theme colours. Phantom nodes read as hollow."""
 import io
 
+import numpy as np
 from PIL import Image
 
 from griot import theme
@@ -9,7 +10,9 @@ from griot.brain.pulse import WRITE, Pulses
 from griot.brain.render import blend, frame
 from griot.brain.sim import Sim
 
-SIZE = (200, 120)
+# A realistic canvas: radii scale with canvas width, so at 200px wide every
+# node is sub-pixel and a phantom ring is indistinguishable from a disc.
+SIZE = (900, 560)
 
 
 def two_nodes(phantom_second: bool) -> g.Graph:
@@ -67,14 +70,15 @@ def test_a_pulse_blooms_the_node_itself():
     graph = g.Graph(names=["A"], paths=["/tmp/A.md"], edges=[], degree=[0],
                     by_path={"/tmp/A.md": 0}, adjacency=[[]], fingerprint="test")
     sim = Sim(graph, SIZE, seed=2)
-    x, y = sim.pos[0]
 
     def node_pixels(pulses):
+        """Whole frame, not a crop around sim.pos: the renderer applies a view
+        scale and a perspective turn, so a node is not drawn at its simulation
+        coordinates. With one node and no edges, the node is the only thing
+        that can change the total."""
         img = Image.open(io.BytesIO(
             frame(graph, sim, pulses, theme.PALETTE, SIZE))).convert("RGB")
-        box = img.crop((max(0, int(x) - 8), max(0, int(y) - 8),
-                        min(SIZE[0], int(x) + 9), min(SIZE[1], int(y) + 9)))
-        return sum(sum(px) for px in box.getdata())
+        return int(np.asarray(img, dtype=np.int64).sum())
 
     quiet = Pulses(graph)
     hot = Pulses(graph)
