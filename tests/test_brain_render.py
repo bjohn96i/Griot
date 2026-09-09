@@ -62,21 +62,23 @@ def test_blend_interpolates_between_two_tokens():
 
 
 def test_a_pulse_blooms_the_node_itself():
-    """The electron path alone changes the frame bytes, so a byte-level
-    comparison cannot see whether node bloom works. Sample the node."""
-    graph = two_nodes(False)
+    """A lone node with no edges: no electrons exist, so any change in the
+    pixels around it can only come from the node's own bloom."""
+    graph = g.Graph(names=["A"], paths=["/tmp/A.md"], edges=[], degree=[0],
+                    by_path={"/tmp/A.md": 0}, adjacency=[[]], fingerprint="test")
     sim = Sim(graph, SIZE, seed=2)
     x, y = sim.pos[0]
 
     def node_pixels(pulses):
         img = Image.open(io.BytesIO(
             frame(graph, sim, pulses, theme.PALETTE, SIZE))).convert("RGB")
-        box = img.crop((max(0, int(x) - 6), max(0, int(y) - 6),
-                        min(SIZE[0], int(x) + 7), min(SIZE[1], int(y) + 7)))
+        box = img.crop((max(0, int(x) - 8), max(0, int(y) - 8),
+                        min(SIZE[0], int(x) + 9), min(SIZE[1], int(y) + 9)))
         return sum(sum(px) for px in box.getdata())
 
     quiet = Pulses(graph)
     hot = Pulses(graph)
     hot.hit(0, WRITE)
+    assert hot.electrons() == [], "no edges means no electrons to confound this"
     assert node_pixels(hot) > node_pixels(quiet), \
         "a written node must grow and brighten where it sits"
