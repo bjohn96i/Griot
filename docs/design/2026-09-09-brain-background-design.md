@@ -261,7 +261,14 @@ background_tint          0.85
 ```
 
 `background_tint` is the readability dial if the graph ever fights Claude Code's text.
-Note `allow_remote_control yes` is **not** sufficient — `listen_on` is rejected under it.
+
+> Corrected 2026-09-09: this spec previously claimed `allow_remote_control yes` is
+> rejected with `listen_on`. That is wrong — I tested both against kitty 0.48.2 and
+> each creates the socket and accepts remote control. The original claim came from
+> misreading an `Invalid listen_on` error in an early spike where I changed two
+> variables at once. `socket-only` is still the right setting, for a better reason:
+> it refuses remote-control commands arriving over the terminal's own escape
+> channel, so a program running inside a pane cannot drive your terminal.
 
 ## Error handling
 
