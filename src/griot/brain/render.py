@@ -28,9 +28,10 @@ EDGE_DIM = 0.55
 REFERENCE_WIDTH = 900.0
 # The layout fills its box by construction; this pulls it in off the edges.
 VIEW_SCALE = 0.88
-# Electrons ride in `secondary`, deliberately a different hue from the nodes:
-# gold nodes with gold electrons read as one texture. How far the coldest
-# electron is faded toward the background.
+# Electrons ride in `electron`, a cool blue-white that is deliberately a
+# different substance from the nodes rather than a warmer shade of them —
+# gold electrons on gold nodes read as one texture. ELECTRON_DIM is how far
+# the coldest electron is faded toward the background.
 ELECTRON_DIM = 0.6
 # A straight trade, measured on a 1400x875 frame with identical sim state:
 #   level 0  19.0ms  3590 KB
@@ -71,7 +72,7 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
     for a, b in graph.edges:
         draw.line([tuple(pos[a]), tuple(pos[b])], fill=edge_colour)
 
-    hot = _rgb(palette["secondary"])
+    hot = _rgb(palette["electron"])
     back = _rgb(palette["bg"])
     cold = tuple(int(back[i] + (hot[i] - back[i]) * (1.0 - ELECTRON_DIM)) for i in range(3))
     ramp = [tuple(int(cold[i] + (hot[i] - cold[i]) * (step / (ELECTRON_RAMP_STEPS - 1)))

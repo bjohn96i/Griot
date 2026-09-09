@@ -4,8 +4,9 @@ import pytest
 
 from griot import theme
 
-TOKENS = {"bg", "panel", "chrome", "chrome_text", "border", "outline", "select",
-          "text", "muted", "accent", "accent_bright", "secondary", "ok", "err"}
+# Read from the module rather than kept as a second copy here: the duplicate
+# only ever caught its own staleness when a token was added.
+TOKENS = set(theme.TOKENS)
 
 
 def test_three_named_themes_exist():
