@@ -141,8 +141,11 @@ over 8 seeds on a 60-node star, `sqrt(degree)` let the hub move 3.6x *more* than
 its leaves (0/8 seeds satisfying the property), while `1/degree` holds it at 0.54x
 (8/8). Corrected 2026-09-09 during implementation.
 
-The temperature floor is load-bearing, not decoration: without it a force layout
-settles within a few hundred frames and freezes, which is the opposite of the brief.
+The temperature floor is load-bearing, but not for the reason this spec first gave.
+Measured with `TEMPERATURE = 0` on a 120-node ring: kinetic energy is still 262 at
+frame 500 and decays to a persistent 2-4 plateau even at 30,000 frames — the layout
+does not freeze outright, it goes progressively, visibly limp. The jitter is what
+keeps motion at a watchable amplitude indefinitely.
 Cell-local repulsion alone clumps at cell boundaries; the 3x3 neighbourhood is
 required for correctness, and is what the 5.3 ms above measures.
 
