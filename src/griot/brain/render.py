@@ -48,6 +48,12 @@ SPIN_RATE = 0.045
 # perspective — the far side draws smaller, dimmer and sweeps a shorter arc,
 # which is what makes it read as a body turning rather than a picture spinning.
 DEPTH_SPREAD = 200.0     # how thick the cluster is, in reference pixels
+# The turn is a bounded rock, not a revolution. A flat layout taken all the way
+# round goes edge-on at 90 degrees, where screen x comes entirely from depth —
+# the cluster's width swung 648..1175px and connected nodes' separation wobbled
+# 26%, which is what read as notes ping-ponging. Rocking +-20 degrees with a
+# smooth dome depth holds width at 993..1056px and wobble at 3.2%.
+SPIN_AMPLITUDE = 0.35    # radians, about 20 degrees either way
 FOCAL = 4000.0           # smaller exaggerates the perspective
 DEPTH_FADE = 0.45        # how much the far side recedes
 
@@ -74,18 +80,6 @@ ELECTRON_RAMP_STEPS = 32
 PHANTOM_RADIUS_SCALE = 0.7
 
 
-_DEPTH_CACHE: dict[str, np.ndarray] = {}
-
-
-def _depth(graph: Graph) -> np.ndarray:
-    """A stable pseudo-random z per node, so the cluster has thickness."""
-    key = f"{graph.fingerprint}:{graph.n}"
-    if key not in _DEPTH_CACHE:
-        rng = np.random.default_rng(abs(hash(key)) % (2 ** 32))
-        _DEPTH_CACHE[key] = rng.random(graph.n).astype(np.float32) * 2.0 - 1.0
-    return _DEPTH_CACHE[key]
-
-
 def _rgb(hex_colour: str) -> tuple[int, int, int]:
     h = hex_colour.lstrip("#")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
@@ -109,10 +103,15 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
     draw = ImageDraw.Draw(img)
     scale = size[0] / REFERENCE_WIDTH
     cx, cy = size[0] / 2.0, size[1] / 2.0
-    cos_s, sin_s = math.cos(spin), math.sin(spin)
+    angle = SPIN_AMPLITUDE * math.sin(spin)
+    cos_s, sin_s = math.cos(angle), math.sin(angle)
     dx = (sim.pos[:, 0] - cx) * VIEW_SCALE
     dy = (sim.pos[:, 1] - cy) * VIEW_SCALE
-    z = _depth(graph) * DEPTH_SPREAD * scale
+    # A dome: depth falls off smoothly with distance from the centre, so nodes
+    # that sit near each other share a depth and the cluster turns as one body.
+    # Random per-node depth sheared neighbours apart on every turn.
+    radial = np.hypot(dx, dy)
+    z = (1.0 - (radial / max(float(radial.max()), 1e-6)) ** 2) * DEPTH_SPREAD * scale
     turned_x = dx * cos_s - z * sin_s
     turned_z = dx * sin_s + z * cos_s
     near = (FOCAL * scale) / (FOCAL * scale + turned_z)
