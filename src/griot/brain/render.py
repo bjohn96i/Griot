@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 
+import numpy as np
 from PIL import Image, ImageDraw
 
 from .graph import Graph
@@ -22,6 +23,10 @@ PULSE_RADIUS = 10.0
 ELECTRON_RADIUS = 0.8
 ELECTRON_GROWTH = 1.6
 EDGE_DIM = 0.55
+# Edges brighten with the energy at their ends. Without this the wave lit the
+# nodes and left the links between them flat, so a pulse read as dots blinking
+# rather than something travelling along the connections.
+EDGE_RAMP_STEPS = 16
 
 # Radii are quoted against this width and scaled to whatever canvas is in use,
 # so changing `size` changes sharpness rather than how big anything looks.
@@ -67,10 +72,20 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
            for x, y in sim.pos.tolist()]
     energy = pulses.energy
 
-    # 2,523 edges at full strength read as a grey wash over the text.
-    edge_colour = blend(palette["outline"], palette["bg"], EDGE_DIM)
-    for a, b in graph.edges:
-        draw.line([tuple(pos[a]), tuple(pos[b])], fill=edge_colour)
+    # 2,523 edges at full strength read as a grey wash over the text, so the
+    # resting colour is dimmed — but an edge whose ends are lit glows toward
+    # the electron colour, the same hue as the traffic riding it.
+    cold_edge = blend(palette["outline"], palette["bg"], EDGE_DIM)
+    lit_edge = _rgb(palette["electron"])
+    edge_ramp = [tuple(int(cold_edge[c] + (lit_edge[c] - cold_edge[c]) * (i / (EDGE_RAMP_STEPS - 1)))
+                       for c in range(3))
+                 for i in range(EDGE_RAMP_STEPS)]
+    if graph.edges:
+        ends = np.asarray(graph.edges, np.int32)
+        heat = np.maximum(energy[ends[:, 0]], energy[ends[:, 1]])
+        shade = (np.clip(heat, 0.0, 1.0) * (EDGE_RAMP_STEPS - 1)).astype(np.int32)
+        for (a, b), step in zip(graph.edges, shade.tolist()):
+            draw.line([tuple(pos[a]), tuple(pos[b])], fill=edge_ramp[step])
 
     hot = _rgb(palette["electron"])
     back = _rgb(palette["bg"])

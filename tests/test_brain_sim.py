@@ -131,3 +131,21 @@ def test_drift_speed_does_not_depend_on_the_frame_rate():
     slow, fast = drift(10), drift(30)
     assert fast == pytest.approx(slow, rel=0.35), \
         f"per-second drift must not scale with fps: 10fps={slow:.2f} 30fps={fast:.2f}"
+
+
+def test_nodes_do_not_settle_onto_the_repulsion_grid():
+    """Repulsion is only computed inside a 3x3 cell neighbourhood, so a fixed
+    grid origin puts a stationary discontinuity at every cell boundary and
+    nodes drift onto it — the lattice score climbed 1.17 -> 2.82 over 2400
+    steps, which reads on screen as a regular dot grid rather than a brain.
+    """
+    def lattice_score(pos) -> float:
+        phase = np.concatenate([(pos[:, 0] % sim_module.CELL) / sim_module.CELL,
+                                (pos[:, 1] % sim_module.CELL) / sim_module.CELL])
+        counts, _ = np.histogram(phase, bins=12, range=(0.0, 1.0))
+        return float(counts.max() / counts.mean())
+
+    sim = Sim(ring(400), (1400, 875), seed=1)
+    for _ in range(2400):
+        sim.step(1 / 25)
+    assert lattice_score(sim.pos) < 1.6, "nodes are settling onto the repulsion grid"

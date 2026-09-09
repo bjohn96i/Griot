@@ -65,7 +65,13 @@ class Sim:
 
     def _repel(self) -> np.ndarray:
         force = np.zeros_like(self.pos)
-        cells = np.floor(self.pos / CELL).astype(np.int32)
+        # Jitter the grid origin every step. With a fixed origin, repulsion is
+        # only computed inside a 3x3 cell neighbourhood, so the discontinuity at
+        # cell boundaries is stationary and nodes settle onto it — measured
+        # lattice score climbing 1.17 -> 2.82 over 2400 steps, which reads on
+        # screen as a regular dot grid. A moving origin has nothing to lock to.
+        origin = self.rng.random(2).astype(np.float32) * CELL
+        cells = np.floor((self.pos + origin) / CELL).astype(np.int32)
         buckets: dict[tuple[int, int], list[int]] = defaultdict(list)
         for i, (cx, cy) in enumerate(cells):
             buckets[(int(cx), int(cy))].append(i)
