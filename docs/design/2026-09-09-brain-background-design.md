@@ -265,7 +265,10 @@ Note `allow_remote_control yes` is **not** sufficient — `listen_on` is rejecte
 
 ## Error handling
 
-Every condition below logs once and exits 0, leaving the workstation untouched.
+Every condition below exits 0, leaving the workstation untouched. All of them log
+once to stderr except the first: `enabled = false` is the default and the
+configured state, not a degradation, and announcing it on every workstation
+start would be noise.
 
 | condition | result |
 |---|---|
