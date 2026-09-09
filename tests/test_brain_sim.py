@@ -65,8 +65,11 @@ def test_the_jitter_is_what_keeps_the_graph_drifting(monkeypatch):
             previous = sim.pos.copy()
         return total / 150
 
-    hot, cold = drift(20.0), drift(0.0)
-    assert hot > cold * 4, f"jitter is not driving the drift: hot={hot:.4f} cold={cold:.4f}"
+    shipped = sim_module.TEMPERATURE
+    hot, cold = drift(shipped), drift(0.0)
+    assert hot > cold * 4, (
+        f"the shipped TEMPERATURE={shipped} is not driving the drift: "
+        f"hot={hot:.4f} cold={cold:.4f}")
 
 
 def test_hubs_move_less_than_leaves():
