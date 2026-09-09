@@ -22,6 +22,12 @@ PULSE_RADIUS = 3.2
 ELECTRON_RADIUS = 0.8
 ELECTRON_GROWTH = 1.6
 EDGE_DIM = 0.55
+
+# Radii are quoted against this width and scaled to whatever canvas is in use,
+# so changing `size` changes sharpness rather than how big anything looks.
+REFERENCE_WIDTH = 900.0
+# The layout fills its box by construction; this pulls it in off the edges.
+VIEW_SCALE = 0.88
 ELECTRON_RAMP_STEPS = 32
 PHANTOM_RADIUS_SCALE = 0.7
 
@@ -41,7 +47,10 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
           palette: dict[str, str], size: tuple[int, int]) -> bytes:
     img = Image.new("RGB", size, _rgb(palette["bg"]))
     draw = ImageDraw.Draw(img)
-    pos = sim.pos.tolist()
+    scale = size[0] / REFERENCE_WIDTH
+    cx, cy = size[0] / 2.0, size[1] / 2.0
+    pos = [((x - cx) * VIEW_SCALE + cx, (y - cy) * VIEW_SCALE + cy)
+           for x, y in sim.pos.tolist()]
     energy = pulses.energy
 
     # 2,523 edges at full strength read as a grey wash over the text.
@@ -57,7 +66,7 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
         ax, ay = pos[a]
         bx, by = pos[b]
         x, y = ax + (bx - ax) * t, ay + (by - ay) * t
-        r = ELECTRON_RADIUS + ELECTRON_GROWTH * hot
+        r = (ELECTRON_RADIUS + ELECTRON_GROWTH * hot) * scale
         colour = ramp[int(max(0.0, min(1.0, hot)) * (ELECTRON_RAMP_STEPS - 1))]
         draw.ellipse([x - r, y - r, x + r, y + r], fill=colour)
 
@@ -65,7 +74,7 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
     secondary = palette["secondary"]
     for i, (x, y) in enumerate(pos):
         e = float(energy[i])
-        r = BASE_RADIUS + DEGREE_RADIUS * (graph.degree[i] ** 0.5) + PULSE_RADIUS * e
+        r = (BASE_RADIUS + DEGREE_RADIUS * (graph.degree[i] ** 0.5) + PULSE_RADIUS * e) * scale
         if e > 0.0:
             hot = secondary if pulses.kind_of[i] == READ else bright
             colour = blend(accent, hot, e)
