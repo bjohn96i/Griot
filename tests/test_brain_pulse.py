@@ -1,8 +1,9 @@
-"""Energy, the hop wave, and the electrons riding the edges."""
+"""Energy, the spark-carried cascade, and idle twinkling."""
 import pytest
 
 from griot.brain import graph as g
-from griot.brain.pulse import (ELECTRONS_PER_EDGE, HOP_FALLOFF, KINDS, Pulses, READ, SPARK_FIRST_FANOUT, SPARK_SPEED, WRITE)
+from griot.brain import pulse as pulse_module
+from griot.brain.pulse import (IDLE_AMPLITUDE, HOP_FALLOFF, KINDS, Pulses, READ, SPARK_FIRST_FANOUT, SPARK_SPEED, WRITE)
 
 
 def chain(n: int) -> g.Graph:
@@ -59,7 +60,10 @@ def test_neighbours_do_not_all_light_at_once():
         "no neighbour may light before a spark has had time to reach it"
 
 
-def test_the_wave_dies_at_the_hop_limit():
+def test_the_wave_dies_at_the_hop_limit(monkeypatch):
+
+    # idle twinkles would light nodes at random and this asserts an exact zero
+    monkeypatch.setattr(pulse_module, "IDLE_RATE", 0.0)
     p = Pulses(chain(8), hops=3)
     p.hit(0, WRITE)
     for _ in range(200):
@@ -78,7 +82,10 @@ def test_a_read_is_the_lighter_event():
     assert read.energy[0] < write.energy[0], "reads also decay faster"
 
 
-def test_energy_decays_to_quiet():
+def test_energy_decays_to_quiet(monkeypatch):
+
+    # idle twinkles keep the graph alive forever by design
+    monkeypatch.setattr(pulse_module, "IDLE_RATE", 0.0)
     p = Pulses(chain(5))
     p.hit(0, WRITE)
     # The cascade itself now runs to ~5s and a write decays over 1.6s, so
@@ -87,28 +94,6 @@ def test_energy_decays_to_quiet():
         p.advance(0.01)
     assert not p.active
     assert p.energy.max() < 0.01
-
-
-def test_electrons_ride_every_edge_and_wrap():
-    p = Pulses(chain(4))
-    first = {e: t for e, t, _ in p.electrons()}
-    assert len(p.electrons()) == ELECTRONS_PER_EDGE * len(p.graph.edges), \
-        "one entry per electron per edge"
-    for _ in range(50):
-        p.advance(0.05)
-    for _, t, _ in p.electrons():
-        assert 0.0 <= t <= 1.0, "t stays normalised as electrons wrap"
-    assert any(t != first.get(e) for e, t, _ in p.electrons())
-
-
-def test_electrons_speed_up_near_an_energised_node():
-    quiet, hot = Pulses(chain(4)), Pulses(chain(4))
-    hot.hit(0, WRITE)
-    quiet.advance(0.05)
-    hot.advance(0.05)
-    quiet_t = [t for e, t, _ in quiet.electrons() if e == 0]
-    hot_t = [t for e, t, _ in hot.electrons() if e == 0]
-    assert max(hot_t) > max(quiet_t)
 
 
 def test_an_unknown_kind_is_rejected():
@@ -177,3 +162,18 @@ def test_the_cascade_prefers_nearby_connections():
     reached = {spark[1] for spark in p._sparks}
     assert reached == set(range(n - SPARK_FIRST_FANOUT, n)), \
         f"expected the {SPARK_FIRST_FANOUT} nearest, got {sorted(reached)[:5]}..."
+
+
+def test_idle_twinkles_stir_nodes_without_cascading():
+    """Ambient life comes from nodes blinking on their own now, not electrons
+    circulating on every edge. A twinkle must never look like activity: it
+    sets energy directly rather than going through hit(), so it emits no
+    sparks and cannot propagate."""
+    p = Pulses(chain(40))
+    for _ in range(200):
+        p.advance(0.02)          # four seconds
+    lit = int((p.energy > 0.01).sum())
+    assert lit > 0, "the graph should stir on its own at rest"
+    assert not p._sparks, "an idle twinkle must not cascade"
+    assert float(p.energy.max()) <= IDLE_AMPLITUDE + 1e-6, \
+        "idle twinkles must stay well below a real read or write"

@@ -24,8 +24,6 @@ DEGREE_RADIUS = 0.40
 # pulse. Cap the contribution so hubs read as large, not as blobs.
 DEGREE_CAP = 7.0
 PULSE_RADIUS = 3.5
-ELECTRON_RADIUS = 0.5
-ELECTRON_GROWTH = 1.0
 EDGE_DIM = 0.55
 # Edges brighten with the energy at their ends. Without this the wave lit the
 # nodes and left the links between them flat, so a pulse read as dots blinking
@@ -64,9 +62,7 @@ REFERENCE_WIDTH = 900.0
 VIEW_SCALE = 0.88
 # Electrons ride in `electron`, a cool blue-white that is deliberately a
 # different substance from the nodes rather than a warmer shade of them —
-# gold electrons on gold nodes read as one texture. ELECTRON_DIM is how far
-# the coldest electron is faded toward the background.
-ELECTRON_DIM = 0.6
+# gold sparks on gold nodes read as one texture.
 # A straight trade, measured on a 1400x875 frame with identical sim state:
 #   level 0  19.0ms  3590 KB
 #   level 1  22.2ms   393 KB
@@ -76,7 +72,6 @@ ELECTRON_DIM = 0.6
 # inside the noise) while ours rose, so its cost is texture upload rather than
 # PNG decode. Fewer bytes buy nothing here; keep the cheapest encode.
 PNG_COMPRESS = 1
-ELECTRON_RAMP_STEPS = 32
 PHANTOM_RADIUS_SCALE = 0.7
 
 
@@ -135,21 +130,7 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
         for (a, b), step in zip(graph.edges, shade.tolist()):
             draw.line([tuple(pos[a]), tuple(pos[b])], fill=edge_ramp[step])
 
-    hot = _rgb(palette["electron"])
     back = _rgb(palette["bg"])
-    cold = tuple(int(back[i] + (hot[i] - back[i]) * (1.0 - ELECTRON_DIM)) for i in range(3))
-    ramp = [tuple(int(cold[i] + (hot[i] - cold[i]) * (step / (ELECTRON_RAMP_STEPS - 1)))
-                  for i in range(3))
-            for step in range(ELECTRON_RAMP_STEPS)]
-
-    for edge_index, t, hot in pulses.electrons():
-        a, b = graph.edges[edge_index]
-        ax, ay = pos[a]
-        bx, by = pos[b]
-        x, y = ax + (bx - ax) * t, ay + (by - ay) * t
-        r = (ELECTRON_RADIUS + ELECTRON_GROWTH * hot) * scale
-        colour = ramp[int(max(0.0, min(1.0, hot)) * (ELECTRON_RAMP_STEPS - 1))]
-        draw.ellipse([x - r, y - r, x + r, y + r], fill=colour)
 
     spark_colour = _rgb(palette["electron"])
     for edge_index, t, amplitude in pulses.sparks():

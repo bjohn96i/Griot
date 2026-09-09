@@ -30,9 +30,12 @@ SPARK_FANOUT = 3          # onward connections a spark lights from where it land
 SPARK_FIRST_FANOUT = 12   # from the originating node; a degree-134 hub would
                           # otherwise spawn 134 sparks and then thousands
 MAX_SPARKS = 500
-ELECTRONS_PER_EDGE = 1
-AMBIENT_SPEED = 0.08      # fraction of an edge per second at rest
-BOOST_SPEED = 0.9
+# Idle life: instead of electrons circulating on every edge, random nodes
+# twinkle on their own. Edge traffic at rest read as noise and competed with
+# the cascade; a quiet node blinking does not.
+IDLE_RATE = 14.0          # twinkles per second across the whole graph
+IDLE_AMPLITUDE = 0.22
+IDLE_DECAY = 0.8
 QUIET = 0.01
 
 KINDS = {
@@ -61,11 +64,7 @@ class Pulses:
         for index, (a, b) in enumerate(graph.edges):
             self._incident[a].append((index, b))
             self._incident[b].append((index, a))
-        count = len(graph.edges) * ELECTRONS_PER_EDGE
-        self._edge_of = np.repeat(np.arange(len(graph.edges)), ELECTRONS_PER_EDGE)
-        self._t = (np.tile(np.arange(ELECTRONS_PER_EDGE) / ELECTRONS_PER_EDGE,
-                           len(graph.edges)).astype(np.float32)
-                   if count else np.zeros(0, np.float32))
+        self._rng = np.random.default_rng(17)
 
     @property
     def active(self) -> bool:
@@ -133,20 +132,14 @@ class Pulses:
         self.energy *= np.exp(-dt / self.decay).astype(np.float32)
         self.energy[self.energy < QUIET / 10] = 0.0
 
-        if self._t.size:
-            self._t = (self._t + self._edge_speed() * dt) % 1.0
+        # Random nodes stir on their own so the graph is alive at rest. These
+        # never cascade — they set energy directly rather than going through
+        # hit(), so an idle twinkle cannot be mistaken for activity.
+        if IDLE_RATE and self.graph.n:
+            for node in self._rng.integers(0, self.graph.n,
+                                           self._rng.poisson(IDLE_RATE * dt)):
+                if self.energy[node] < IDLE_AMPLITUDE:
+                    self.energy[node] = IDLE_AMPLITUDE
+                    self.decay[node] = IDLE_DECAY
+                    self.kind_of[node] = READ
 
-    def _edge_speed(self) -> np.ndarray:
-        if not self.graph.edges:
-            return np.zeros(0, np.float32)
-        e = np.asarray(self.graph.edges, np.int32)
-        hot = np.maximum(self.energy[e[:, 0]], self.energy[e[:, 1]])
-        return (AMBIENT_SPEED + BOOST_SPEED * hot)[self._edge_of]
-
-    def electrons(self) -> list[tuple[int, float, float]]:
-        if not self._t.size:
-            return []
-        e = np.asarray(self.graph.edges, np.int32)
-        hot = np.maximum(self.energy[e[:, 0]], self.energy[e[:, 1]])[self._edge_of]
-        return [(int(edge), float(t), float(b))
-                for edge, t, b in zip(self._edge_of, self._t, hot)]

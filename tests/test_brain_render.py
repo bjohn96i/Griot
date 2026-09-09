@@ -6,6 +6,7 @@ from PIL import Image
 
 from griot import theme
 from griot.brain import graph as g
+from griot.brain import pulse as pulse_module
 from griot.brain.pulse import WRITE, Pulses
 from griot.brain.render import blend, frame
 from griot.brain.sim import Sim
@@ -64,9 +65,10 @@ def test_blend_interpolates_between_two_tokens():
     assert blend("#000000", "#FFFFFF", 0.5) == (127, 127, 127)
 
 
-def test_a_pulse_blooms_the_node_itself():
-    """A lone node with no edges: no electrons exist, so any change in the
-    pixels around it can only come from the node's own bloom."""
+def test_a_pulse_blooms_the_node_itself(monkeypatch):
+    """A lone node with no edges, and idle twinkling off, so any change in the
+    frame can only come from the node's own bloom."""
+    monkeypatch.setattr(pulse_module, "IDLE_RATE", 0.0)
     graph = g.Graph(names=["A"], paths=["/tmp/A.md"], edges=[], degree=[0],
                     by_path={"/tmp/A.md": 0}, adjacency=[[]], fingerprint="test")
     sim = Sim(graph, SIZE, seed=2)
@@ -83,6 +85,5 @@ def test_a_pulse_blooms_the_node_itself():
     quiet = Pulses(graph)
     hot = Pulses(graph)
     hot.hit(0, WRITE)
-    assert hot.electrons() == [], "no edges means no electrons to confound this"
     assert node_pixels(hot) > node_pixels(quiet), \
         "a written node must grow and brighten where it sits"
