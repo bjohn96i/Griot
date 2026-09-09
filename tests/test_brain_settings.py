@@ -40,10 +40,10 @@ def test_write_params_renders_shell_assignments(tmp_path):
     target = settings.write_params(settings.resolve({"enabled": True}),
                                    tmp_path / "params")
     body = dict(line.split("=", 1) for line in target.read_text().splitlines())
-    assert body["enabled"] == "1"
-    assert body["spool"].endswith("/brain/events")
+    assert body["brain_enabled"] == "1"
+    assert body["spool"].endswith("/brain/events'")
 
 
 def test_write_params_marks_disabled(tmp_path):
     target = settings.write_params(settings.resolve({}), tmp_path / "params")
-    assert "enabled=0" in target.read_text()
+    assert "brain_enabled=0" in target.read_text()

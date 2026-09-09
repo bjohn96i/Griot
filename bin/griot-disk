@@ -53,15 +53,37 @@ esac
 # Deliberately ahead of every sound gate: muting the drive must not blind
 # the brain. Bash-tool calls carry no file_path and so spool nothing.
 if [ -f "$BRAIN_PARAMS" ]; then
-    brain_enabled=$(sed -n 's/^enabled=//p' "$BRAIN_PARAMS")
-    brain_spool=$(sed -n 's/^spool=//p' "$BRAIN_PARAMS")
-    if [ "${brain_enabled:-0}" = "1" ] && [ -n "${brain_spool:-}" ]; then
-        file_path=$(printf '%s' "$payload" \
-            | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 \
-            | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"//; s/"$//')
+    brain_enabled=0
+    spool=""
+    # shellcheck disable=SC1090
+    . "$BRAIN_PARAMS"
+    if [ "${brain_enabled:-0}" = "1" ] && [ -n "$spool" ]; then
+        # Pure builtins: this runs on every Claude tool call, and grep+head+sed
+        # cost ~28ms a call in forks alone. Tolerates any spacing around the
+        # colon because we do not control Claude Code's JSON formatting.
+        #
+        # A file_path containing a literal double quote extracts truncated —
+        # inherent without a JSON parser. The corrupt line is dropped later by
+        # events.resolve(), so the effect is a missing pulse, not bad data.
+        file_path=""
+        case "$payload" in
+            *'"file_path"'*)
+                rest=${payload#*\"file_path\"}
+                rest=${rest#*:}
+                while :; do
+                    case "$rest" in
+                        " "*|"	"*) rest=${rest#?} ;;
+                        *) break ;;
+                    esac
+                done
+                case "$rest" in
+                    \"*) file_path=${rest#\"}; file_path=${file_path%%\"*} ;;
+                esac
+                ;;
+        esac
         if [ -n "$file_path" ]; then
-            mkdir -p "$(dirname "$brain_spool")"
-            printf '%s %s %s\n' "$(date +%s)" "$kind" "$file_path" >> "$brain_spool"
+            mkdir -p "$(dirname "$spool")" 2>/dev/null
+            printf '%s %s %s\n' "$(date +%s)" "$kind" "$file_path" >> "$spool" 2>/dev/null
         fi
     fi
 fi

@@ -67,10 +67,15 @@ def resolve(user: dict) -> dict:
 
 
 def write_params(cfg: dict, path: Path | None = None) -> Path:
-    """Render the resolved config as shell assignments for bin/griot-disk."""
+    """Render the resolved config as shell assignments for bin/griot-disk.
+
+    `enabled` is rendered as `brain_enabled` — not `enabled` — so sourcing
+    this file cannot collide with the sound params' own `enabled`. `spool`
+    is single-quoted so a HOME containing a space does not break the source.
+    """
     target = Path(path) if path is not None else PARAMS_FILE
-    body = (f"enabled={1 if cfg['enabled'] else 0}\n"
-            f"spool={SPOOL_FILE}\n")
+    body = (f"brain_enabled={1 if cfg['enabled'] else 0}\n"
+            f"spool='{SPOOL_FILE}'\n")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(body)
     return target

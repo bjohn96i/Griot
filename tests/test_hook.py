@@ -170,7 +170,7 @@ def brain(cache):
     root, _ = cache
     d = root / "griot" / "brain"
     d.mkdir(parents=True)
-    (d / "params").write_text(f"enabled=1\nspool={d / 'events'}\n")
+    (d / "params").write_text(f"brain_enabled=1\nspool='{d / 'events'}'\n")
     return d
 
 
@@ -211,7 +211,7 @@ def test_the_spool_is_written_even_when_sound_is_disabled(cache, brain):
 
 
 def test_nothing_is_spooled_when_the_brain_is_disabled(cache, brain):
-    (brain / "params").write_text(f"enabled=0\nspool={brain / 'events'}\n")
+    (brain / "params").write_text(f"brain_enabled=0\nspool='{brain / 'events'}'\n")
     run(cache, "write", {"tool_input": {"file_path": "/vault/A.md"}})
     assert not (brain / "events").exists()
 
