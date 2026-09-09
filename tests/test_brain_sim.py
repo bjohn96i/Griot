@@ -68,10 +68,17 @@ def test_hubs_move_less_than_leaves():
     assert moved[0] < np.median(moved[1:])
 
 
-def test_impulse_moves_the_targeted_node():
-    sim = Sim(ring(40), (900, 560), seed=5)
+def test_impulse_pushes_a_nodes_neighbours_outward():
+    node = 3
+    shoved = Sim(ring(40), (900, 560), seed=5)
     quiet = Sim(ring(40), (900, 560), seed=5)
-    sim.impulse(3, 40.0)
-    sim.step()
+    shoved.impulse(node, 40.0)
+    shoved.step()
     quiet.step()
-    assert not np.allclose(sim.pos[3], quiet.pos[3])
+
+    def spread(sim):
+        nbrs = sim.graph.adjacency[node]
+        return float(np.linalg.norm(sim.pos[nbrs] - sim.pos[node], axis=1).mean())
+
+    assert spread(shoved) > spread(quiet), \
+        "a write must push its neighbours outward, not just jog the node"

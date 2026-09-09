@@ -32,6 +32,9 @@ class Sim:
         n = graph.n
         self.pos = (self.rng.random((n, 2)) * size).astype(np.float32)
         self.vel = np.zeros((n, 2), np.float32)
+        # inv_mass scales by 1/degree (not 1/sqrt): hubs have ~60x lower mass than
+        # leaves on a 60-node star, which is necessary to keep hubs from moving
+        # 3.6x more than leaves. sqrt alone is insufficient under actual forces.
         self.inv_mass = (1.0 / np.maximum(graph.degree, 1, dtype=np.float32)
                          ).astype(np.float32)
         if graph.edges:
@@ -45,7 +48,10 @@ class Sim:
 
     def impulse(self, node: int, strength: float) -> None:
         """Shove a node's neighbours outward — a write disturbs its region."""
-        self.vel[node] += strength * self.inv_mass[node]
+        for other in self.graph.adjacency[node]:
+            delta = self.pos[other] - self.pos[node]
+            norm = float(np.linalg.norm(delta)) or 1.0
+            self.vel[other] += (delta / norm) * strength * self.inv_mass[other]
 
     def _repel(self) -> np.ndarray:
         force = np.zeros_like(self.pos)
