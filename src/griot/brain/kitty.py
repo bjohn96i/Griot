@@ -8,7 +8,9 @@ placeholders that live in real cells, and Claude Code's next repaint destroys
 them.
 
 Requires `allow_remote_control socket-only` plus `listen_on` in kitty.conf.
-Plain `allow_remote_control yes` makes kitty reject listen_on outright.
+`socket-only` is preferred because it refuses remote-control commands
+arriving over the terminal's own escape channel, which plain `yes` permits —
+both settings were tested against kitty 0.48.2 and both work.
 """
 from __future__ import annotations
 

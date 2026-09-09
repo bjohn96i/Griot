@@ -248,7 +248,10 @@ Then in `~/.config/griot/config.toml`:
 enabled = true
 ```
 
-Check it with `uv run griot-brain --selftest`.
+Check it with `uv run griot-brain --selftest`. The launcher redirects the
+detached animator's stdout/stderr to `~/.cache/griot/brain/log` (or
+`$XDG_CACHE_HOME/griot/brain/log`), which is where to look if the background
+never appears.
 
 **Right pane — live status** (each widget refreshes independently and degrades to `?`/`◌` on failure)
 - **Heartbeat animation** (`[animation]`: beads, scope, bars, glyphs) — excites on any state change or an imminent meeting.

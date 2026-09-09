@@ -122,6 +122,19 @@ def test_a_decimal_titled_phantom_is_not_mistaken_for_a_file(tmp_path):
     assert "Diagram.png" not in names, "a real attachment extension still drops"
 
 
+def test_by_path_maps_every_file_sharing_a_stem_to_the_shared_node(tmp_path):
+    """Node identity is keyed by stem (matches Obsidian), so two files named
+    Meetings.md in different folders are one node — but events.resolve()
+    looks events up by absolute path, so both files' paths must land in
+    by_path or one of them can never pulse."""
+    v = vault(tmp_path, {"Team A/Meetings.md": "", "Team B/Meetings.md": ""})
+    graph = g.build_graph(v)
+    assert graph.names.count("Meetings") == 1, "one node per stem, matching Obsidian"
+    node = graph.names.index("Meetings")
+    assert graph.by_path[str((v / "Team A" / "Meetings.md").resolve())] == node
+    assert graph.by_path[str((v / "Team B" / "Meetings.md").resolve())] == node
+
+
 def test_a_rename_invalidates_the_cache(tmp_path):
     v = vault(tmp_path, {"A.md": "[[B]]", "B.md": ""})
     cache = tmp_path / "graph.json"

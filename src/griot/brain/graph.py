@@ -97,8 +97,14 @@ def _walk(vault_path: Path):
 def build_graph(vault_path: Path) -> Graph:
     vault_path = Path(vault_path)
     real: dict[str, Path] = {}
+    # Node identity is keyed by stem (matches Obsidian's own link resolution),
+    # so only one file per stem becomes a node — but every real file with that
+    # stem should still resolve to it in by_path, or events for the other
+    # files sharing that basename are silently dropped by events.resolve().
+    all_paths_by_stem: dict[str, list[Path]] = {}
     for path in _walk(vault_path):
         real.setdefault(path.stem, path)
+        all_paths_by_stem.setdefault(path.stem, []).append(path)
 
     names = list(real)
     index = {name: i for i, name in enumerate(names)}
@@ -128,12 +134,16 @@ def build_graph(vault_path: Path) -> Graph:
     for a, b in edges:
         adjacency[a].append(b)
         adjacency[b].append(a)
+    by_path: dict[str, int] = {}
+    for stem, node_index in index.items():
+        for path in all_paths_by_stem.get(stem, ()):
+            by_path[str(path.resolve())] = node_index
     return Graph(
         names=names,
         paths=paths,
         edges=edges,
         degree=[len(nbrs) for nbrs in adjacency],
-        by_path={p: i for i, p in enumerate(paths) if p is not None},
+        by_path=by_path,
         adjacency=adjacency,
         fingerprint=fingerprint(vault_path),
     )

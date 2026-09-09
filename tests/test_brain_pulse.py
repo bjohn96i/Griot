@@ -2,7 +2,7 @@
 import pytest
 
 from griot.brain import graph as g
-from griot.brain.pulse import HOP_AMPLITUDE, READ, WRITE, Pulses
+from griot.brain.pulse import HOP_AMPLITUDE, KINDS, READ, WRITE, Pulses
 
 
 def chain(n: int) -> g.Graph:
@@ -84,3 +84,33 @@ def test_electrons_speed_up_near_an_energised_node():
 def test_an_unknown_kind_is_rejected():
     with pytest.raises(ValueError, match="kind"):
         Pulses(chain(3)).hit(0, "delete")
+
+
+def test_a_read_after_a_write_does_not_steal_its_identity():
+    """Energy merges with max(), but a weaker later event must not also win
+    decay/kind — else write-then-read (an ordinary Claude sequence) gives the
+    write's amplitude but the read's 0.5s decay and colour instead of the
+    write's 1.4s and colour."""
+    p = Pulses(chain(5))
+    p.hit(0, WRITE)
+    p.hit(0, READ)
+    assert p.energy[0] == pytest.approx(1.0), "the stronger amplitude still wins"
+    assert p.decay[0] == pytest.approx(KINDS[WRITE]["decay"])
+    assert p.kind_of[0] == WRITE, "the weaker read must not steal the write's colour"
+
+
+def test_a_weaker_scheduled_hit_does_not_steal_a_stronger_ones_identity():
+    """Same shape as the hop-0 case, but in advance()'s pending-application
+    loop (pulse.py:85-87): two hop hits due on the same tick, processed in
+    list order. The stronger one must keep its decay/kind even though it is
+    applied first and the weaker one is applied after it."""
+    p = Pulses(chain(3))
+    node = 1
+    p._pending = [
+        (0.0, node, 1.0, WRITE),   # stronger, processed first
+        (0.0, node, 0.3, READ),    # weaker, processed second
+    ]
+    p.advance(0.0)
+    assert p.energy[node] == pytest.approx(1.0)
+    assert p.decay[node] == pytest.approx(KINDS[WRITE]["decay"])
+    assert p.kind_of[node] == WRITE

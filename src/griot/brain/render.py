@@ -22,6 +22,7 @@ PULSE_RADIUS = 5.0
 ELECTRON_RADIUS = 1.4
 ELECTRON_GROWTH = 2.6
 ELECTRON_RAMP_STEPS = 32
+PHANTOM_RADIUS_SCALE = 0.7
 
 
 def _rgb(hex_colour: str) -> tuple[int, int, int]:
@@ -68,10 +69,12 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
             colour = blend(accent, hot, e)
         else:
             colour = _rgb(muted)
-        box = [x - r, y - r, x + r, y + r]
         if graph.paths[i] is None:
+            pr = r * PHANTOM_RADIUS_SCALE
+            box = [x - pr, y - pr, x + pr, y + pr]
             draw.ellipse(box, outline=colour)     # phantom: a ring, never filled
         else:
+            box = [x - r, y - r, x + r, y + r]
             draw.ellipse(box, fill=colour)
 
     buf = io.BytesIO()

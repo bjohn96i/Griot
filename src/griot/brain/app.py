@@ -34,6 +34,8 @@ FOCUS_POLL_SECONDS = 1.0
 # OFTEN the world advances, not how far.
 SIM_STEP = 1.0 / 15.0   # fixed: fps controls how OFTEN we step, not how far
 
+WRITE_IMPULSE = 30.0
+
 
 class Brain:
     def __init__(self, graph, cfg, client, spool_path) -> None:
@@ -55,17 +57,21 @@ class Brain:
 
     def tick(self) -> None:
         now = time.monotonic()
+        self._refresh_focus(now)
         for node, kind in resolve_events(self.spool.read_new(), self.graph):
             self.pulses.hit(node, kind)
-            if kind == "write":
-                self.sim.impulse(node, 30.0)
+            if kind == "write" and self._focused:
+                self.sim.impulse(node, WRITE_IMPULSE)
             self.active_until = now + self.cfg["active_window"]
 
         self.fps = float(self.cfg["fps_active"] if now < self.active_until
                          else self.cfg["fps_idle"])
 
-        self._refresh_focus(now)
         if not self._focused:
+            # Keep draining the pulse queue — it is the only thing that clears
+            # _pending, and without it an unfocused hour blooms all at once on
+            # return. Skip the simulation and the frame; those are the cost.
+            self.pulses.advance(SIM_STEP)
             return
 
         self.sim.step(SIM_STEP)
@@ -105,6 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg = settings.resolve(conf.brain)
     except ValueError as e:
         return _fail(f"config: {e}")
+    settings.write_params(cfg)
     if not cfg["enabled"]:
         return 0
 
@@ -123,13 +130,19 @@ def main(argv: list[str] | None = None) -> int:
         client.close()
         return _fail(f"cannot read the vault at {conf.vault_path}: {e}")
 
-    settings.write_params(cfg)
+    if graph.n == 0:
+        client.close()
+        return _fail(f"no notes found under {conf.vault_path} — check vault_path")
+
     brain = Brain(graph, cfg, client, settings.SPOOL_FILE)
 
     if "--selftest" in argv:
-        for _ in range(3):
-            brain.tick()
-        brain.shutdown()
+        try:
+            for _ in range(3):
+                brain.tick()
+            brain.shutdown()
+        except OSError as e:
+            return _fail(f"selftest failed: {e}")
         print(f"griot-brain: ok — {graph.n} nodes, {len(graph.edges)} edges")
         return 0
 
@@ -139,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(sig, lambda *_: sys.exit(0))
     try:
         brain.run()
-    except (OSError, BrokenPipeError) as e:
+    except OSError as e:
         return _fail(f"kitty went away: {e}")
     finally:
         brain.shutdown()

@@ -58,9 +58,10 @@ class Pulses:
             if hop == 0:
                 # Apply hop 0 immediately
                 for target in frontier:
-                    self.energy[target] = max(float(self.energy[target]), amplitude)
-                    self.decay[target] = KINDS[kind]["decay"]
-                    self.kind_of[target] = kind
+                    if amplitude >= float(self.energy[target]):
+                        self.energy[target] = amplitude
+                        self.decay[target] = KINDS[kind]["decay"]
+                        self.kind_of[target] = kind
             else:
                 # Schedule later hops
                 for target in frontier:
@@ -82,9 +83,10 @@ class Pulses:
         if due:
             self._pending = [p for p in self._pending if p[0] > self._clock]
             for _, node, amplitude, kind in due:
-                self.energy[node] = max(float(self.energy[node]), amplitude)
-                self.decay[node] = KINDS[kind]["decay"]
-                self.kind_of[node] = kind
+                if amplitude >= float(self.energy[node]):
+                    self.energy[node] = amplitude
+                    self.decay[node] = KINDS[kind]["decay"]
+                    self.kind_of[node] = kind
 
         self.energy *= np.exp(-dt / self.decay).astype(np.float32)
         self.energy[self.energy < QUIET / 10] = 0.0

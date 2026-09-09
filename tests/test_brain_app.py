@@ -1,9 +1,13 @@
 """The animator's clock and lifecycle. No real kitty is involved."""
 import pytest
 
+from griot import config as config_module
+from griot.brain import app as app_module
 from griot.brain import graph as g
+from griot.brain import settings as settings_module
 from griot.brain.app import Brain
 from griot.brain.settings import resolve
+from griot.config import Config
 
 
 class FakeKitty:
@@ -109,3 +113,75 @@ def test_the_simulation_advances_by_a_fixed_step_regardless_of_frame_rate(tmp_pa
     assert b.fps == b.cfg["fps_active"], "second tick should be the active rate"
     assert steps == [pytest.approx(1 / 15), pytest.approx(1 / 15)], \
         "the step must not vary with the frame rate"
+
+
+class FakeKittyClient:
+    """Stand-in for kitty.KittyBackground — no real socket."""
+    def __init__(self, *a, **kw):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+    def clear(self):
+        pass
+
+    def send_png(self, data):
+        pass
+
+    def focused(self):
+        return True
+
+
+def make_config(tmp_path, **brain) -> Config:
+    return Config(
+        vault_path=tmp_path / "vault",
+        tasks_dir="Notes/Tasks",
+        claude_default_dir=tmp_path,
+        repos_dir=tmp_path,
+        startup_prompt="",
+        commands={},
+        jira_base_url="",
+        redis_tunnel_port=0,
+        latitude=0.0,
+        longitude=0.0,
+        left_percent=20,
+        right_percent=16,
+        brain=brain,
+    )
+
+
+def test_a_disabled_brain_still_writes_brain_enabled_0(tmp_path, monkeypatch):
+    """C2: main() used to return before write_params() ran for a disabled
+    brain, so bin/griot-disk kept reading a stale brain_enabled=1 from a
+    previous enabled trial and paid the spool-write cost forever."""
+    params_file = tmp_path / "params"
+    monkeypatch.setattr(settings_module, "PARAMS_FILE", params_file)
+    monkeypatch.setattr(config_module, "load_config",
+                        lambda: make_config(tmp_path, enabled=False))
+
+    rc = app_module.main([])
+
+    assert rc == 0
+    assert params_file.exists(), "write_params must run even when disabled"
+    assert "brain_enabled=0" in params_file.read_text()
+
+
+def test_an_empty_graph_refuses_to_run(tmp_path, monkeypatch, capsys):
+    """I5: rglob on a vault_path that yields no notes does not raise, so
+    without this gate main() would proceed to animate an empty background
+    forever instead of refusing to start."""
+    (tmp_path / "vault").mkdir()   # exists, but has no .md files
+    monkeypatch.setattr(settings_module, "PARAMS_FILE", tmp_path / "params")
+    monkeypatch.setattr(settings_module, "GRAPH_CACHE", tmp_path / "graph.json")
+    monkeypatch.setattr(config_module, "load_config",
+                        lambda: make_config(tmp_path, enabled=True, socket="/tmp/fake"))
+    monkeypatch.setattr(app_module.kitty, "discover_socket", lambda override: "fake")
+    fake_client = FakeKittyClient()
+    monkeypatch.setattr(app_module.kitty, "KittyBackground", lambda address: fake_client)
+
+    rc = app_module.main(["--selftest"])
+
+    assert rc == 0
+    assert fake_client.closed is True, "must not leave the socket open"
+    assert "no notes found" in capsys.readouterr().err

@@ -71,21 +71,30 @@ if [ -f "$BRAIN_PARAMS" ]; then
         # inherent without a JSON parser. The corrupt line is dropped later by
         # events.resolve(), so the effect is a missing pulse, not bad data.
         file_path=""
-        case "$payload" in
-            *'"file_path"'*)
-                rest=${payload#*\"file_path\"}
-                rest=${rest#*:}
-                while :; do
+        if [ "${#payload}" -gt 16384 ]; then
+            # Shell expansion is O(n) on the payload; grep is not. Above ~16 KB
+            # the fork is cheaper than the expansion — measured 136ms vs ~20ms
+            # on a 368 KB Write payload.
+            file_path=$(printf '%s' "$payload" \
+                | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 \
+                | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"//; s/"$//')
+        else
+            case "$payload" in
+                *'"file_path"'*)
+                    rest=${payload#*\"file_path\"}
+                    rest=${rest#*:}
+                    while :; do
+                        case "$rest" in
+                            " "*|"	"*) rest=${rest#?} ;;
+                            *) break ;;
+                        esac
+                    done
                     case "$rest" in
-                        " "*|"	"*) rest=${rest#?} ;;
-                        *) break ;;
+                        \"*) file_path=${rest#\"}; file_path=${file_path%%\"*} ;;
                     esac
-                done
-                case "$rest" in
-                    \"*) file_path=${rest#\"}; file_path=${file_path%%\"*} ;;
-                esac
-                ;;
-        esac
+                    ;;
+            esac
+        fi
         if [ -n "$file_path" ]; then
             spool_dir=${spool%/*}
             [ -d "$spool_dir" ] || mkdir -p "$spool_dir" 2>/dev/null
