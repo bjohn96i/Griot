@@ -53,8 +53,18 @@ class Spool:
         return events
 
     def _rotate(self) -> None:
+        """Truncate only when nothing arrived after our read.
+
+        The hook appends on every Claude tool call, and a blind truncate(0)
+        here would destroy anything written between the read loop finishing
+        and this call — silently, since we would never have seen it. If the
+        file has grown, skip rotation and take it on a later pass; the spool
+        is only a little over its ceiling for one cycle.
+        """
         try:
             with self.path.open("r+") as f:
+                if f.seek(0, 2) != self.offset:
+                    return
                 f.truncate(0)
             self.offset = 0
         except OSError:

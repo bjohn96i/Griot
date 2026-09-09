@@ -55,6 +55,21 @@ def test_rotation_past_the_limit_resets_the_offset(tmp_path):
     assert [e.path for e in s.read_new()] == ["/vault/C.md"], "no re-read after rotation"
 
 
+def test_rotation_is_skipped_when_a_write_lands_mid_cycle(tmp_path):
+    """The hook appends on every Claude tool call. Truncating the whole file
+    after our read would silently destroy whatever arrived in between."""
+    p = spool_file(tmp_path, "1700000000 write /vault/" + "A" * 60 + ".md")
+    s = Spool(p, max_bytes=32)
+    assert len(s.read_new()) == 1
+
+    with p.open("a") as f:                     # the hook, racing us
+        f.write("1700000001 write /vault/RACE.md\n")
+
+    s._rotate()
+    assert [e.path for e in s.read_new()] == ["/vault/RACE.md"], \
+        "an event appended before the rotate must survive it"
+
+
 def test_truncation_by_someone_else_is_handled(tmp_path):
     """Detection is by size, so the replacement has to be shorter — a
     same-length rewrite is invisible to an offset-tracking reader."""
