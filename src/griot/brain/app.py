@@ -87,6 +87,20 @@ class Brain:
             self.pulses.advance(1.0 / self.fps)
             return
 
+        if DEBUG:
+            lit = int((self.pulses.energy > 0.01).sum())
+            if lit and not getattr(self, "_burst", None):
+                self._burst = [now, 0, 0]
+            if getattr(self, "_burst", None):
+                self._burst[1] = max(self._burst[1], lit)
+                self._burst[2] += 1
+                if not lit:
+                    began, peak, frames = self._burst
+                    print(f"griot-brain: burst over — {now - began:.1f}s, "
+                          f"{frames} frames drawn, peak {peak} nodes lit",
+                          file=sys.stderr, flush=True)
+                    self._burst = None
+
         step = 1.0 / self.fps
         self.sim.step(step)
         self.pulses.advance(step)

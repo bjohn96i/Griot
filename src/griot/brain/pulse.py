@@ -14,7 +14,14 @@ from .graph import Graph
 
 READ, WRITE = "read", "write"
 
-HOP_AMPLITUDE = (1.0, 0.55, 0.30)
+ORIGIN_AMPLITUDE = 1.0
+# What each hop keeps of the one before it. This was implicit in the ratio of
+# the last two entries of an amplitude tuple — 0.545 — which put hop 3 at 0.138 and
+# hop 4 at 0.075. Measured: after 0.5s not one node was above 0.30, so the
+# cascade was invisible past the first flash however long it ran. At 0.78 the
+# series is 0.85 / 0.72 / 0.61 / 0.52 / 0.44 — still visibly declining, but
+# every hop stays bright enough to see.
+HOP_FALLOFF = 0.85
 # A hop is carried by a spark travelling the connection, not by a timer: the
 # old fixed delay lit every neighbour of a hub simultaneously, which reads as a
 # ring flashing on rather than a signal propagating.
@@ -29,8 +36,8 @@ BOOST_SPEED = 0.9
 QUIET = 0.01
 
 KINDS = {
-    WRITE: {"scale": 1.0, "decay": 0.75, "hops": 5},
-    READ: {"scale": 0.85, "decay": 0.55, "hops": 5},
+    WRITE: {"scale": 1.0, "decay": 1.6, "hops": 5},
+    READ: {"scale": 0.85, "decay": 1.2, "hops": 5},
 }
 
 
@@ -92,12 +99,15 @@ class Pulses:
         if kind not in KINDS:
             raise ValueError(f"kind: expected {READ!r} or {WRITE!r}, got {kind!r}")
         spec = KINDS[kind]
-        amplitude = HOP_AMPLITUDE[0] * spec["scale"]
+        amplitude = ORIGIN_AMPLITUDE * spec["scale"]
         if amplitude >= float(self.energy[node]):
             self.energy[node] = amplitude
             self.decay[node] = spec["decay"]
             self.kind_of[node] = kind
-        self._emit(node, HOP_AMPLITUDE[1] * spec["scale"], kind, 1, came_from=-1)
+        # hop 1 takes the same falloff as every other hop; it used to take a
+        # separate, steeper 0.55, which pushed hop 3 to 0.284 — under the
+        # threshold at which anything is visible.
+        self._emit(node, amplitude * HOP_FALLOFF, kind, 1, came_from=-1)
 
     def advance(self, dt: float) -> None:
         self._clock += dt
@@ -117,7 +127,7 @@ class Pulses:
                     self.decay[node] = KINDS[kind]["decay"]
                     self.kind_of[node] = kind
                 a, b = self.graph.edges[index]
-                self._emit(node, amplitude * (HOP_AMPLITUDE[2] / HOP_AMPLITUDE[1]),
+                self._emit(node, amplitude * HOP_FALLOFF,
                            kind, hop + 1, came_from=a if node == b else b)
 
         self.energy *= np.exp(-dt / self.decay).astype(np.float32)

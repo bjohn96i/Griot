@@ -2,7 +2,7 @@
 import pytest
 
 from griot.brain import graph as g
-from griot.brain.pulse import (ELECTRONS_PER_EDGE, HOP_AMPLITUDE, KINDS, Pulses, READ, SPARK_FIRST_FANOUT, SPARK_SPEED, WRITE)
+from griot.brain.pulse import (ELECTRONS_PER_EDGE, HOP_FALLOFF, KINDS, Pulses, READ, SPARK_FIRST_FANOUT, SPARK_SPEED, WRITE)
 
 
 def chain(n: int) -> g.Graph:
@@ -35,7 +35,7 @@ def test_the_wave_reaches_neighbours_at_declining_amplitude():
         p.advance(0.01)
         peak = [max(a, float(b)) for a, b in zip(peak, p.energy)]
     assert peak[0] > peak[1] > peak[2] > peak[3], f"peaks were {peak[:4]}"
-    assert peak[1] <= HOP_AMPLITUDE[1]
+    assert peak[1] <= peak[0] * HOP_FALLOFF + 1e-6
 
 def test_neighbours_do_not_all_light_at_once():
     """The point of spark-carried hops: a hub's neighbours fire in sequence as
@@ -81,7 +81,9 @@ def test_a_read_is_the_lighter_event():
 def test_energy_decays_to_quiet():
     p = Pulses(chain(5))
     p.hit(0, WRITE)
-    for _ in range(900):            # 9s — a write's 1.4s decay needs the room
+    # The cascade itself now runs to ~5s and a write decays over 1.6s, so
+    # everything is dark around 11s. 14s leaves margin without being a wait.
+    for _ in range(1400):
         p.advance(0.01)
     assert not p.active
     assert p.energy.max() < 0.01
