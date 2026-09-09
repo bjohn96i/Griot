@@ -2,7 +2,8 @@
 import pytest
 
 from griot.brain import graph as g
-from griot.brain.pulse import HOP_AMPLITUDE, KINDS, READ, WRITE, Pulses
+from griot.brain.pulse import (ELECTRONS_PER_EDGE, HOP_AMPLITUDE, KINDS, READ,
+                               WRITE, Pulses)
 
 
 def chain(n: int) -> g.Graph:
@@ -63,7 +64,8 @@ def test_energy_decays_to_quiet():
 def test_electrons_ride_every_edge_and_wrap():
     p = Pulses(chain(4))
     first = {e: t for e, t, _ in p.electrons()}
-    assert len(p.electrons()) == 2 * len(p.graph.edges), "two electrons per edge"
+    assert len(p.electrons()) == ELECTRONS_PER_EDGE * len(p.graph.edges), \
+        "one entry per electron per edge"
     for _ in range(50):
         p.advance(0.05)
     for _, t, _ in p.electrons():

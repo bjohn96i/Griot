@@ -16,14 +16,14 @@ READ, WRITE = "read", "write"
 
 HOP_AMPLITUDE = (1.0, 0.55, 0.30)
 HOP_DELAY = 0.12          # seconds per hop
-ELECTRONS_PER_EDGE = 2
+ELECTRONS_PER_EDGE = 1
 AMBIENT_SPEED = 0.08      # fraction of an edge per second at rest
 BOOST_SPEED = 0.9
 QUIET = 0.01
 
 KINDS = {
     WRITE: {"scale": 1.0, "decay": 1.4, "hops": 3},
-    READ: {"scale": 0.6, "decay": 0.5, "hops": 2},
+    READ: {"scale": 0.85, "decay": 1.0, "hops": 2},
 }
 
 

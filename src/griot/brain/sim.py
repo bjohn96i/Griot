@@ -16,10 +16,10 @@ import numpy as np
 from .graph import Graph
 
 CELL = 60.0
-REPULSION = 60.0
+REPULSION = 40.0
 SPRING = 0.02
 REST_LENGTH = 40.0
-CENTERING = 0.01
+CENTERING = 0.06        # 0.01 pressed 36 nodes flat against the frame
 # TEMPERATURE drives drift; measured at steady state (post-3000 frame convergence):
 # 0.4 → ~0.3 px/sec (appears frozen), 20.0 → ~3.0 px/sec at 15fps (watchable float).
 # Kinetic energy is wrong observable (spring energy dominates first ~1500 frames);

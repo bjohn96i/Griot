@@ -88,6 +88,9 @@ class Brain:
     def shutdown(self) -> None:
         try:
             self.client.clear()
+        except OSError:
+            pass        # kitty already gone — there is no background left to clear,
+                        # and a traceback out of the exit path helps nobody
         finally:
             self.client.close()
 

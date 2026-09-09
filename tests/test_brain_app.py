@@ -185,3 +185,15 @@ def test_an_empty_graph_refuses_to_run(tmp_path, monkeypatch, capsys):
     assert rc == 0
     assert fake_client.closed is True, "must not leave the socket open"
     assert "no notes found" in capsys.readouterr().err
+
+
+def test_shutdown_survives_a_dead_socket(tmp_path):
+    """Killing the animator while kitty is gone must not print a traceback —
+    observed live when restarting the process against a closed socket."""
+    b = brain(tmp_path)
+
+    def boom():
+        raise BrokenPipeError(32, "Broken pipe")
+
+    b.client.clear = boom
+    b.shutdown()          # must not raise

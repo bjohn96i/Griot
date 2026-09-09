@@ -16,11 +16,12 @@ from .graph import Graph
 from .pulse import READ, Pulses
 from .sim import Sim
 
-BASE_RADIUS = 1.6
-DEGREE_RADIUS = 1.1
-PULSE_RADIUS = 5.0
-ELECTRON_RADIUS = 1.4
-ELECTRON_GROWTH = 2.6
+BASE_RADIUS = 0.9
+DEGREE_RADIUS = 0.55
+PULSE_RADIUS = 3.2
+ELECTRON_RADIUS = 0.8
+ELECTRON_GROWTH = 1.6
+EDGE_DIM = 0.55
 ELECTRON_RAMP_STEPS = 32
 PHANTOM_RADIUS_SCALE = 0.7
 
@@ -43,7 +44,8 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
     pos = sim.pos.tolist()
     energy = pulses.energy
 
-    edge_colour = _rgb(palette["outline"])
+    # 2,523 edges at full strength read as a grey wash over the text.
+    edge_colour = blend(palette["outline"], palette["bg"], EDGE_DIM)
     for a, b in graph.edges:
         draw.line([tuple(pos[a]), tuple(pos[b])], fill=edge_colour)
 
