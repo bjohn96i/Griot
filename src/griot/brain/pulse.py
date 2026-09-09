@@ -18,9 +18,9 @@ HOP_AMPLITUDE = (1.0, 0.55, 0.30)
 # A hop is carried by a spark travelling the connection, not by a timer: the
 # old fixed delay lit every neighbour of a hub simultaneously, which reads as a
 # ring flashing on rather than a signal propagating.
-SPARK_SPEED = 2.6         # edges per second
+SPARK_SPEED = 1.0         # edges per second
 SPARK_FANOUT = 3          # onward connections a spark lights from where it lands
-SPARK_FIRST_FANOUT = 24   # from the originating node; a degree-134 hub would
+SPARK_FIRST_FANOUT = 12   # from the originating node; a degree-134 hub would
                           # otherwise spawn 134 sparks and then thousands
 MAX_SPARKS = 500
 ELECTRONS_PER_EDGE = 1
