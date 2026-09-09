@@ -29,7 +29,12 @@ kind="${1:-}"
 # classifies a bash command) need it, and a pipe can only be drained once.
 payload=""
 if [ "$kind" = "auto" ] || [ -f "$BRAIN_PARAMS" ]; then
-    payload=$(cat 2>/dev/null || true)
+    # Builtin slurp rather than $(cat): this runs on every tool call and the
+    # fork costs ~8ms. Lines are concatenated without their newlines, which
+    # suits both consumers — the classifier greps and the extractor scans.
+    while IFS= read -r line || [ -n "$line" ]; do
+        payload="$payload$line"
+    done
 fi
 
 if [ "$kind" = "auto" ]; then
@@ -82,7 +87,8 @@ if [ -f "$BRAIN_PARAMS" ]; then
                 ;;
         esac
         if [ -n "$file_path" ]; then
-            mkdir -p "$(dirname "$spool")" 2>/dev/null
+            spool_dir=${spool%/*}
+            [ -d "$spool_dir" ] || mkdir -p "$spool_dir" 2>/dev/null
             printf '%s %s %s\n' "$(date +%s)" "$kind" "$file_path" >> "$spool" 2>/dev/null
         fi
     fi
