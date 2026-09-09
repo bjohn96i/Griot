@@ -132,9 +132,14 @@ repel    grid + 3x3 neighbour cells, 60 px cells (short-range only)
 spring   2520 edges, k * (len - rest)
 center   weak pull toward centroid
 temp     gaussian jitter — the graph never converges
-mass     proportional to sqrt(degree); keeps degree-219 hubs from being flung
+mass     proportional to degree; keeps hubs from being flung
 damp     v *= 0.85
 ```
+
+Mass scales with degree, not its square root as this spec first said: measured
+over 8 seeds on a 60-node star, `sqrt(degree)` let the hub move 3.6x *more* than
+its leaves (0/8 seeds satisfying the property), while `1/degree` holds it at 0.54x
+(8/8). Corrected 2026-09-09 during implementation.
 
 The temperature floor is load-bearing, not decoration: without it a force layout
 settles within a few hundred frames and freezes, which is the opposite of the brief.
