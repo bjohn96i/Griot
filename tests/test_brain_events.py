@@ -56,9 +56,11 @@ def test_rotation_past_the_limit_resets_the_offset(tmp_path):
 
 
 def test_truncation_by_someone_else_is_handled(tmp_path):
-    p = spool_file(tmp_path, "1700000000 write /vault/A.md")
+    """Detection is by size, so the replacement has to be shorter — a
+    same-length rewrite is invisible to an offset-tracking reader."""
+    p = spool_file(tmp_path, "1700000000 write /vault/A Considerably Longer Name.md")
     s = Spool(p)
-    s.read_new()
+    assert len(s.read_new()) == 1
     p.write_text("1700000009 write /vault/Z.md\n")
     assert [e.path for e in s.read_new()] == ["/vault/Z.md"]
 
