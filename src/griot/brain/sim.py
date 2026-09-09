@@ -3,8 +3,9 @@
 Repulsion is short-range against a spatial grid rather than all pairs: the
 3x3 neighbourhood costs ~5ms for this vault against ~27ms for the naive
 O(n^2), and cell-local repulsion alone clumps at cell boundaries. The
-temperature floor is not decoration — without it the layout converges within
-a few hundred frames and freezes, which is the opposite of the brief.
+temperature floor is load-bearing — without it the layout settles to a
+low-energy plateau with minimal motion. With it, the system maintains
+motion at a watchable amplitude indefinitely.
 """
 from __future__ import annotations
 
