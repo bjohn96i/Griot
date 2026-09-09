@@ -62,6 +62,7 @@ Linux would require rewriting the right-pane data sources in
 | `fzf` | the ⌥x command palette | `brew install fzf` |
 | `icalBuddy` | calendar widget (optional — widget stays empty without it) | `brew install ical-buddy` |
 | Node / `npx` | the Claude usage widget (`ccusage`) | comes with Node |
+| `kitty` | the brain background (optional) | `brew install --cask kitty` |
 
 **Network:** the weather widget calls Open-Meteo; the usage widget downloads `ccusage`
 via `npx` on first run. Both degrade to `?` offline.
@@ -204,6 +205,46 @@ re-attaches to the already-running session, which still shows the old build.
 - `⌥t` new Claude tab · `⌥w` close · `⌥1`–`⌥9` jump · mouse-click a tab to switch.
 - `c`-loaded task sessions get the vault **and** `repos_dir` via `--add-dir`, so Claude can read the note and edit code.
 - Notes render with `glow` in the Vibranium style (`q` closes the pager tab).
+
+### Brain background (kitty only)
+
+The vault's link graph, live behind the center pane: nodes floating, electrons
+riding the connections, and a bloom on whatever note Claude is reading or
+writing. Off by default.
+
+It works because kitty draws its window background image *below* cell
+backgrounds, and Claude Code paints an explicit background on only ~11 cells of
+a full screen — so the graph shows through nearly the whole pane. The tasks and
+status panes mask it automatically because `griot.tcss` sets
+`Screen { background: $bg }`, and Textual therefore paints every cell opaque.
+
+**Requires kitty.** Ghostty 1.3.1 renders the same background image but cannot
+animate it: it has no IPC, `SIGUSR2` is a no-op, and `SIGUSR1`/`SIGHUP`
+terminate it. kitty's own graphics protocol isn't usable here either — under
+tmux it renders through unicode placeholders that occupy real cells, which
+Claude Code's next repaint destroys. The mechanism that does work is kitty's
+window `background_image`, drawn below cell backgrounds.
+
+In `kitty.conf`:
+
+```
+allow_remote_control     socket-only
+listen_on                unix:/tmp/kitty-griot
+background_image_layout  scaled
+background_tint          0.85
+```
+
+`allow_remote_control yes` is *not* sufficient — kitty rejects `listen_on`
+under it. `background_tint` is the dial if the graph ever fights the text.
+
+Then in `~/.config/griot/config.toml`:
+
+```toml
+[brain]
+enabled = true
+```
+
+Check it with `uv run griot-brain --selftest`.
 
 **Right pane — live status** (each widget refreshes independently and degrades to `?`/`◌` on failure)
 - **Heartbeat animation** (`[animation]`: beads, scope, bars, glyphs) — excites on any state change or an imminent meeting.
