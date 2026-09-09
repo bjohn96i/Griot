@@ -12,6 +12,17 @@ import pytest
 from griot.brain import kitty
 
 
+def wait_until(predicate, timeout: float = 2.0) -> bool:
+    """The fixture's server runs in a daemon thread, so a message sent is not
+    yet a message received. Poll instead of assuming."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return False
+
+
 @pytest.fixture
 def fake_kitty():
     """A unix socket that records every kitty-cmd message it receives.
@@ -80,6 +91,8 @@ def test_send_png_streams_chunks_and_closes_the_stream(fake_kitty):
     address, received, _ = fake_kitty
     client = kitty.KittyBackground(address)
     client.send_png(os.urandom(5000))
+    assert wait_until(lambda: any("data" not in m.get("payload", {}) for m in received)), \
+        "server thread never received the stream-closing message"
     client.close()
     assert received[0]["cmd"] == "set-background-image"
     assert received[0]["stream"] is True
@@ -92,6 +105,8 @@ def test_every_chunk_is_within_the_size_limit(fake_kitty):
     address, received, _ = fake_kitty
     client = kitty.KittyBackground(address)
     client.send_png(os.urandom(9000))
+    assert wait_until(lambda: any("data" not in m.get("payload", {}) for m in received)), \
+        "server thread never received the stream-closing message"
     client.close()
     assert all(len(m["payload"].get("data", "")) <= kitty.CHUNK for m in received)
 
@@ -100,6 +115,8 @@ def test_clear_removes_the_background(fake_kitty):
     address, received, _ = fake_kitty
     client = kitty.KittyBackground(address)
     client.clear()
+    assert wait_until(lambda: any(m.get("payload", {}).get("data") == "none" for m in received)), \
+        "server thread never received the clear"
     client.close()
     assert received[-1]["payload"]["data"] == "none"
 
@@ -205,6 +222,8 @@ def test_only_the_first_chunk_opens_the_stream(fake_kitty):
     address, received, _ = fake_kitty
     client = kitty.KittyBackground(address)
     client.send_png(os.urandom(9000))
+    assert wait_until(lambda: any("data" not in m.get("payload", {}) for m in received)), \
+        "server thread never received the stream-closing message"
     client.close()
     streamed = [m for m in received if m.get("stream")]
     assert len(streamed) == 1, "exactly one message opens the stream"
