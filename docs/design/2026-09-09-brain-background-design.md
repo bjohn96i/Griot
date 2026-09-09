@@ -141,11 +141,20 @@ over 8 seeds on a 60-node star, `sqrt(degree)` let the hub move 3.6x *more* than
 its leaves (0/8 seeds satisfying the property), while `1/degree` holds it at 0.54x
 (8/8). Corrected 2026-09-09 during implementation.
 
-The temperature floor is load-bearing, but not for the reason this spec first gave.
-Measured with `TEMPERATURE = 0` on a 120-node ring: kinetic energy is still 262 at
-frame 500 and decays to a persistent 2-4 plateau even at 30,000 frames — the layout
-does not freeze outright, it goes progressively, visibly limp. The jitter is what
-keeps motion at a watchable amplitude indefinitely.
+The temperature floor needed calibrating, and this spec had it wrong twice. Measured
+steady-state drift on a 120-node ring after 3,000 frames, in pixels per node per
+second at 15fps:
+
+```
+TEMPERATURE   0.0    0.4    2.0    5.0    8.0   12.0   20.0
+px/sec        0.3    0.3    0.4    0.8    1.2    1.8    3.0
+```
+
+At the originally specified `0.4` the jitter is indistinguishable from zero — a node
+moves one pixel every three seconds, which is a still image. `TEMPERATURE = 20.0`
+gives ~3 px/sec: visible float, no shimmer. Note also that the layout never truly
+freezes even at zero jitter (repulsion and springs keep a small residual), so the
+constant's job is amplitude, not liveness.
 Cell-local repulsion alone clumps at cell boundaries; the 3x3 neighbourhood is
 required for correctness, and is what the 5.3 ms above measures.
 
