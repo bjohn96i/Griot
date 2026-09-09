@@ -1,7 +1,9 @@
 """The kitty remote-control client, against a fake socket that records the wire."""
 import json
 import os
+import shutil
 import socket
+import tempfile
 import threading
 
 import pytest
@@ -10,13 +12,19 @@ from griot.brain import kitty
 
 
 @pytest.fixture
-def fake_kitty(tmp_path):
-    """A unix socket that records every kitty-cmd message it receives."""
-    address = str(tmp_path / "sock")
+def fake_kitty():
+    """A unix socket that records every kitty-cmd message it receives.
+
+    Deliberately not pytest's tmp_path: macOS caps AF_UNIX paths at ~104
+    characters and pytest's default base blows straight past it.
+    """
+    directory = tempfile.mkdtemp(prefix="gk", dir="/tmp")
+    address = os.path.join(directory, "s")
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(address)
     server.listen(1)
     received: list[dict] = []
+    state = {"focused": True}
 
     def serve():
         conn, _ = server.accept()
@@ -29,17 +37,22 @@ def fake_kitty(tmp_path):
             while b"\x1b\\" in buf:
                 head, buf = buf.split(b"\x1b\\", 1)
                 _, _, body = head.partition(b"\x1bP@kitty-cmd")
-                if body:
-                    received.append(json.loads(body))
-                    if json.loads(body).get("cmd") == "ls":
-                        conn.sendall(b'\x1bP@kitty-cmd{"ok":true,"data":'
-                                     b'"[{\\"is_focused\\":true}]"}\x1b\\')
+                if not body:
+                    continue
+                message = json.loads(body)
+                received.append(message)
+                if message.get("cmd") == "ls":
+                    conn.sendall(
+                        b"\x1bP@kitty-cmd"
+                        + json.dumps({"ok": True,
+                                      "data": json.dumps([{"is_focused": state["focused"]}])}).encode()
+                        + b"\x1b\\")
         conn.close()
 
-    thread = threading.Thread(target=serve, daemon=True)
-    thread.start()
-    yield address, received
+    threading.Thread(target=serve, daemon=True).start()
+    yield address, received, state
     server.close()
+    shutil.rmtree(directory, ignore_errors=True)
 
 
 def test_discover_prefers_an_explicit_override(monkeypatch):
@@ -58,7 +71,7 @@ def test_discover_returns_none_when_there_is_no_kitty(monkeypatch):
 
 
 def test_send_png_streams_chunks_and_closes_the_stream(fake_kitty):
-    address, received = fake_kitty
+    address, received, _ = fake_kitty
     client = kitty.KittyBackground(address)
     client.send_png(os.urandom(5000))
     client.close()
@@ -70,7 +83,7 @@ def test_send_png_streams_chunks_and_closes_the_stream(fake_kitty):
 
 
 def test_every_chunk_is_within_the_size_limit(fake_kitty):
-    address, received = fake_kitty
+    address, received, _ = fake_kitty
     client = kitty.KittyBackground(address)
     client.send_png(os.urandom(9000))
     client.close()
@@ -78,7 +91,7 @@ def test_every_chunk_is_within_the_size_limit(fake_kitty):
 
 
 def test_clear_removes_the_background(fake_kitty):
-    address, received = fake_kitty
+    address, received, _ = fake_kitty
     client = kitty.KittyBackground(address)
     client.clear()
     client.close()
@@ -86,7 +99,17 @@ def test_clear_removes_the_background(fake_kitty):
 
 
 def test_focused_reads_the_reply(fake_kitty):
-    address, _ = fake_kitty
+    address, _, _ = fake_kitty
     client = kitty.KittyBackground(address)
     assert client.focused() is True
+    client.close()
+
+
+def test_focused_reports_false_when_the_window_is_not_focused(fake_kitty):
+    """focused() defaults to True on every failure path, so only a negative
+    reply can show the reply is being parsed at all."""
+    address, _, state = fake_kitty
+    state["focused"] = False
+    client = kitty.KittyBackground(address)
+    assert client.focused() is False
     client.close()
