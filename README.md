@@ -62,7 +62,7 @@ Linux would require rewriting the right-pane data sources in
 | `fzf` | the ⌥x command palette | `brew install fzf` |
 | `icalBuddy` | calendar widget (optional — widget stays empty without it) | `brew install ical-buddy` |
 | Node / `npx` | the Claude usage widget (`ccusage`) | comes with Node |
-| `kitty` | the brain background (optional) | `brew install --cask kitty` |
+| `kitty` | the brain background (optional — feature stays off without it) | `brew install --cask kitty` |
 
 **Network:** the weather widget calls Open-Meteo; the usage widget downloads `ccusage`
 via `npx` on first run. Both degrade to `?` offline.
@@ -234,8 +234,12 @@ background_image_layout  scaled
 background_tint          0.85
 ```
 
-`allow_remote_control yes` is *not* sufficient — kitty rejects `listen_on`
-under it. `background_tint` is the dial if the graph ever fights the text.
+`allow_remote_control` must be `socket-only` rather than the default `no`.
+Plain `yes` also works — both were tested against kitty 0.48.2 — but
+`socket-only` additionally refuses remote-control commands arriving over the
+terminal's own escape channel, so a program running inside a pane cannot
+drive your terminal. `background_tint` is the dial if the graph ever fights
+the text.
 
 Then in `~/.config/griot/config.toml`:
 
