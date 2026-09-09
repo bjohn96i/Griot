@@ -38,7 +38,10 @@ def brain(tmp_path, **overrides):
 
 
 def test_it_idles_at_the_idle_rate(tmp_path):
+    """Seeded with a bogus rate first — __init__ already sets fps_idle, so
+    without this the assertion passes whether or not tick() does its job."""
     b = brain(tmp_path)
+    b.fps = 999.0
     b.tick()
     assert b.fps == b.cfg["fps_idle"]
 
