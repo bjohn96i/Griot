@@ -24,15 +24,18 @@ def test_a_write_puts_full_energy_on_the_hit_node():
 
 
 def test_the_wave_reaches_neighbours_at_declining_amplitude():
-    """Hops are carried by sparks now, so this needs real travel time: at
-    SPARK_SPEED edges per second a hop takes 1/SPARK_SPEED seconds."""
+    """Compare PEAK energy per hop, not a snapshot. The cascade now takes five
+    seconds while a read decays in 0.55s, so by the time hop 3 fires the origin
+    has already gone dark — correct for a travelling wave, but it means no
+    single instant shows the declining profile."""
     p = Pulses(chain(5))
     p.hit(0, WRITE)
-    for _ in range(int(3.5 / SPARK_SPEED / 0.01)):
+    peak = [float(v) for v in p.energy]
+    for _ in range(int(5.0 / SPARK_SPEED / 0.01)):
         p.advance(0.01)
-    assert p.energy[0] > p.energy[1] > p.energy[2] > p.energy[3]
-    assert p.energy[1] <= HOP_AMPLITUDE[1]
-
+        peak = [max(a, float(b)) for a, b in zip(peak, p.energy)]
+    assert peak[0] > peak[1] > peak[2] > peak[3], f"peaks were {peak[:4]}"
+    assert peak[1] <= HOP_AMPLITUDE[1]
 
 def test_neighbours_do_not_all_light_at_once():
     """The point of spark-carried hops: a hub's neighbours fire in sequence as
