@@ -18,7 +18,7 @@ from .sim import Sim
 
 BASE_RADIUS = 0.9
 DEGREE_RADIUS = 0.55
-PULSE_RADIUS = 3.2
+PULSE_RADIUS = 10.0
 ELECTRON_RADIUS = 0.8
 ELECTRON_GROWTH = 1.6
 EDGE_DIM = 0.55
@@ -89,7 +89,11 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
         draw.ellipse([x - r, y - r, x + r, y + r], fill=colour)
 
     muted, accent, bright = palette["muted"], palette["accent"], palette["accent_bright"]
-    secondary = palette["secondary"]
+    # Reads flash in the electron blue-white, not `secondary`. Measured against
+    # the hub with kitty's 0.85 tint applied: rust lifted the neighbourhood
+    # 2.1%, which is invisible, because it is DARKER than the ambient gold.
+    # Blue-white lifts it 15-20% and stays distinct from a write's warm gold.
+    secondary = palette["electron"]
     for i, (x, y) in enumerate(pos):
         e = float(energy[i])
         r = (BASE_RADIUS + DEGREE_RADIUS * (graph.degree[i] ** 0.5) + PULSE_RADIUS * e) * scale
