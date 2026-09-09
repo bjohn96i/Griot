@@ -89,7 +89,11 @@ if [ -f "$BRAIN_PARAMS" ]; then
         if [ -n "$file_path" ]; then
             spool_dir=${spool%/*}
             [ -d "$spool_dir" ] || mkdir -p "$spool_dir" 2>/dev/null
-            printf '%s %s %s\n' "$(date +%s)" "$kind" "$file_path" >> "$spool" 2>/dev/null
+            # Brace group, not a bare `>> "$spool" 2>/dev/null`: when the
+            # redirection target itself fails to open, the shell reports that
+            # before the command's own stderr redirection applies. Claude sees
+            # this hook's stderr on every tool call.
+            { printf '%s %s %s\n' "$(date +%s)" "$kind" "$file_path" >> "$spool"; } 2>/dev/null
         fi
     fi
 fi
