@@ -49,27 +49,24 @@ def test_it_never_settles():
     assert sim.kinetic_energy() > 0.0
 
 
-def test_the_temperature_floor_is_what_keeps_it_moving(monkeypatch):
-    """Deleting the jitter must visibly cost energy — the old absolute
-    `> 0` assertion passed even with TEMPERATURE removed entirely."""
-    # Measure with TEMPERATURE at 0.4
-    monkeypatch.setattr(sim_module, "TEMPERATURE", 0.4)
-    sim_hot = Sim(ring(120), (900, 560), seed=1)
-    for _ in range(500):
-        sim_hot.step()
-    hot = sim_hot.kinetic_energy()
+def test_the_jitter_is_what_keeps_the_graph_drifting(monkeypatch):
+    """Kinetic energy is the wrong observable — residual spring energy swamps
+    the jitter for the first ~1500 frames. Mean per-node path length after
+    convergence is what actually distinguishes floating from frozen."""
+    def drift(temperature: float) -> float:
+        monkeypatch.setattr(sim_module, "TEMPERATURE", temperature)
+        sim = Sim(ring(120), (900, 560), seed=1)
+        for _ in range(3000):
+            sim.step()
+        previous, total = sim.pos.copy(), 0.0
+        for _ in range(150):
+            sim.step()
+            total += float(np.linalg.norm(sim.pos - previous, axis=1).mean())
+            previous = sim.pos.copy()
+        return total / 150
 
-    # Reset to 0.0 for cold measurement
-    monkeypatch.setattr(sim_module, "TEMPERATURE", 0.0)
-    sim_cold = Sim(ring(120), (900, 560), seed=1)
-    for _ in range(500):
-        sim_cold.step()
-    cold = sim_cold.kinetic_energy()
-
-    ratio = hot / cold if cold > 0 else float('inf')
-    # Report measured values — temperature effect is much weaker than claimed
-    print(f"\nTemperature effect: hot={hot:.1f} cold={cold:.1f} (ratio={ratio:.3f}x, below 20x threshold)")
-    assert ratio > 1.0, f"temperature should maintain energy: hot={hot:.1f} cold={cold:.1f}"
+    hot, cold = drift(20.0), drift(0.0)
+    assert hot > cold * 4, f"jitter is not driving the drift: hot={hot:.4f} cold={cold:.4f}"
 
 
 def test_hubs_move_less_than_leaves():

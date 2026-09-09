@@ -20,7 +20,11 @@ REPULSION = 60.0
 SPRING = 0.02
 REST_LENGTH = 40.0
 CENTERING = 0.01
-TEMPERATURE = 0.4
+# TEMPERATURE drives drift; measured at steady state (post-3000 frame convergence):
+# 0.4 → ~0.3 px/sec (appears frozen), 20.0 → ~3.0 px/sec at 15fps (watchable float).
+# Kinetic energy is wrong observable (spring energy dominates first ~1500 frames);
+# mean path length distinguishes floating from frozen.
+TEMPERATURE = 20.0
 DAMPING = 0.85
 MAX_SPEED = 40.0
 
