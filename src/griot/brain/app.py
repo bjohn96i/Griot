@@ -24,6 +24,8 @@ from .render import frame
 from .sim import Sim
 
 FOCUS_POLL_SECONDS = 1.0
+# GRIOT_BRAIN_DEBUG=1 logs every pulse the animator actually applies.
+DEBUG = bool(os.environ.get("GRIOT_BRAIN_DEBUG"))
 
 # Damping in Sim.step() is applied once per call, not scaled by dt — so a
 # larger dt (a lower fps) moves the graph further per call without a
@@ -62,6 +64,11 @@ class Brain:
         self._refresh_focus(now)
         for node, kind in resolve_events(self.spool.read_new(), self.graph):
             self.pulses.hit(node, kind)
+            if DEBUG:
+                print(f"griot-brain: {kind} -> node {node} '{self.graph.names[node]}' "
+                      f"energy={float(self.pulses.energy[node]):.2f} "
+                      f"focused={self._focused} fps={self.fps:.0f}",
+                      file=sys.stderr, flush=True)
             if kind == "write" and self._focused:
                 self.sim.impulse(node, WRITE_IMPULSE)
             self.active_until = now + self.cfg["active_window"]

@@ -27,6 +27,11 @@ EDGE_DIM = 0.55
 # nodes and left the links between them flat, so a pulse read as dots blinking
 # rather than something travelling along the connections.
 EDGE_RAMP_STEPS = 16
+# How far a resting node is faded toward the background. Without this the
+# ambient field is as bright as a pulse, so a firing node's peak brightness was
+# 1.00x its resting peak — no contrast at all, which is why reads could not be
+# seen however large the pulse got. At 0.55 the same read reads 1.47x.
+AMBIENT_DIM = 0.55
 
 # Radii are quoted against this width and scaled to whatever canvas is in use,
 # so changing `size` changes sharpness rather than how big anything looks.
@@ -54,6 +59,11 @@ PHANTOM_RADIUS_SCALE = 0.7
 def _rgb(hex_colour: str) -> tuple[int, int, int]:
     h = hex_colour.lstrip("#")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def blend_rgb(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+    t = max(0.0, min(1.0, t))
+    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
 
 def blend(a: str, b: str, t: float) -> tuple[int, int, int]:
@@ -104,6 +114,7 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
         draw.ellipse([x - r, y - r, x + r, y + r], fill=colour)
 
     muted, accent, bright = palette["muted"], palette["accent"], palette["accent_bright"]
+    ambient_node = blend(muted, palette["bg"], AMBIENT_DIM)
     # Reads flash in the electron blue-white, not `secondary`. Measured against
     # the hub with kitty's 0.85 tint applied: rust lifted the neighbourhood
     # 2.1%, which is invisible, because it is DARKER than the ambient gold.
@@ -114,9 +125,12 @@ def frame(graph: Graph, sim: Sim, pulses: Pulses,
         r = (BASE_RADIUS + DEGREE_RADIUS * (graph.degree[i] ** 0.5) + PULSE_RADIUS * e) * scale
         if e > 0.0:
             hot = secondary if pulses.kind_of[i] == READ else bright
-            colour = blend(accent, hot, e)
+            # Ramp from the resting colour, not from `accent`: starting at a
+            # bright token made even a trace of energy jump to full brightness,
+            # so the ramp was not monotonic and the bloom had no run-up.
+            colour = blend_rgb(ambient_node, _rgb(hot), e)
         else:
-            colour = _rgb(muted)
+            colour = ambient_node
         if graph.paths[i] is None:
             pr = r * PHANTOM_RADIUS_SCALE
             box = [x - pr, y - pr, x + pr, y + pr]
