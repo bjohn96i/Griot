@@ -63,6 +63,7 @@ class Brain:
     def tick(self) -> None:
         now = time.monotonic()
         self._refresh_focus(now)
+        self.pulses.positions = self.sim.pos
         for node, kind in resolve_events(self.spool.read_new(), self.graph):
             self.pulses.hit(node, kind)
             if DEBUG:

@@ -44,6 +44,11 @@ class Pulses:
         # each spark: [edge index, node it is heading for, progress 0..1,
         #              amplitude it will deliver, kind, hop number]
         self._sparks: list[list] = []
+        # The app points this at the live layout each tick. Without it the
+        # cascade fans out by edge index, which on this vault meant a median
+        # hop of 445px across a 1400px canvas — sparks flying to scattered
+        # distant nodes, which reads as random rather than as a wave.
+        self.positions = None
         self._clock = 0.0
         self._incident: list[list[tuple[int, int]]] = [[] for _ in range(graph.n)]
         for index, (a, b) in enumerate(graph.edges):
@@ -76,9 +81,11 @@ class Pulses:
         room = MAX_SPARKS - len(self._sparks)
         if room <= 0:
             return
-        for index, other in self._incident[node][:max(0, min(fan, room))]:
-            if other == came_from:
-                continue
+        candidates = [c for c in self._incident[node] if c[1] != came_from]
+        if self.positions is not None:
+            here = self.positions[node]
+            candidates.sort(key=lambda c: float(((self.positions[c[1]] - here) ** 2).sum()))
+        for index, other in candidates[:max(0, min(fan, room))]:
             self._sparks.append([index, other, 0.0, amplitude, kind, hop])
 
     def hit(self, node: int, kind: str) -> None:

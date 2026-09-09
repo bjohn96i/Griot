@@ -2,9 +2,7 @@
 import pytest
 
 from griot.brain import graph as g
-from griot.brain.pulse import (ELECTRONS_PER_EDGE, HOP_AMPLITUDE, KINDS, READ,
-                               SPARK_SPEED,
-                               WRITE, Pulses)
+from griot.brain.pulse import (ELECTRONS_PER_EDGE, HOP_AMPLITUDE, KINDS, Pulses, READ, SPARK_FIRST_FANOUT, SPARK_SPEED, WRITE)
 
 
 def chain(n: int) -> g.Graph:
@@ -142,3 +140,35 @@ def test_a_weaker_arriving_spark_does_not_steal_a_stronger_ones_identity():
     assert p.kind_of[node] == WRITE
 
 
+
+
+def test_the_cascade_prefers_nearby_connections():
+    """Fanning out by edge index sent sparks to whichever neighbours happened
+    to be listed first — a median hop of 445px across a 1400px canvas, which
+    reads as random scatter rather than a wave leaving the node.
+
+    Neighbour i is placed at (41 - i) * 100 px, so distance order is the exact
+    reverse of index order: picking by index gives 1..24, picking by distance
+    gives 17..40. Only one of those can pass.
+    """
+    import numpy as np
+    n = 41
+    names = [f"N{i}" for i in range(n)]
+    edges = [(0, i) for i in range(1, n)]
+    adjacency = [[] for _ in range(n)]
+    for a, b in edges:
+        adjacency[a].append(b)
+        adjacency[b].append(a)
+    graph = g.Graph(names=names, paths=[None] * n, edges=edges,
+                    degree=[len(x) for x in adjacency], by_path={},
+                    adjacency=adjacency, fingerprint="test")
+    positions = np.array([[0.0, 0.0]] + [[(n - i) * 100.0, 0.0] for i in range(1, n)],
+                         dtype=np.float32)
+
+    p = Pulses(graph, hops=5)
+    p.positions = positions
+    p.hit(0, WRITE)
+
+    reached = {spark[1] for spark in p._sparks}
+    assert reached == set(range(n - SPARK_FIRST_FANOUT, n)), \
+        f"expected the {SPARK_FIRST_FANOUT} nearest, got {sorted(reached)[:5]}..."

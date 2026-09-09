@@ -38,8 +38,8 @@ EDGE_RAMP_STEPS = 16
 AMBIENT_DIM = 0.55
 # Ambient electrons are the quiet traffic; sparks are the signal. Sparks are
 # drawn brighter and larger so the eye follows them along the connection.
-SPARK_RADIUS = 2.2
-SPARK_GROWTH = 2.6
+SPARK_RADIUS = 0.7
+SPARK_GROWTH = 1.1
 # The whole cluster turns slowly, so it reads as a body in space rather than a
 # flat diagram. Radians per second.
 SPIN_RATE = 0.045
