@@ -71,10 +71,20 @@ class Reactor(Static):
         self._phase += CORE_RATE * step
         self.pulses.advance(step)
 
-        for index in self.watcher.poll(now):
-            self._rebuild()
-            self.pulses.energy[index] = BIRTH_AMPLITUDE
-            self.pulses.kind_of[index] = WRITE
+        # Rebuild ONCE for the whole rescan, not once per birth. The rebuild
+        # replaces self.pulses, so doing it inside the loop meant each birth
+        # zeroed the one before it — a turn that created three notes animated
+        # exactly one of them — and wiped any cascade already in flight
+        # (measured: energy sum 1.494 -> 1.000 after a single birth).
+        # `poll()` has already swapped watcher.graph, so the old graph and
+        # pulses have to be captured before it is called.
+        was_graph, was_pulses = self.watcher.graph, self.pulses
+        born = self.watcher.poll(now)
+        if born:
+            self._rebuild(was_graph, was_pulses)
+            for index in born:          # indices into the NEW graph
+                self.pulses.energy[index] = BIRTH_AMPLITUDE
+                self.pulses.kind_of[index] = WRITE
 
         for node, kind in resolve_events(self.spool.read_new(), self.watcher.graph):
             path = self.watcher.graph.paths[node]
@@ -95,8 +105,44 @@ class Reactor(Static):
                       (canvas.width / 2.0, canvas.height / 2.0), self._spin))
         self.last_frame = canvas.render(ramp(theme.PALETTE))
 
-    def _rebuild(self) -> None:
-        """The vault grew, so the graph and rings are stale. Energy is not
-        carried over — indices have moved."""
-        self.rings = ring_of(self.watcher.graph)
-        self.pulses = Pulses(self.watcher.graph, hops=int(self.cfg["hops"]))
+    def _rebuild(self, was_graph, was_pulses) -> None:
+        """The vault grew, so the graph and rings are stale.
+
+        Indices move when the graph is rebuilt, but a note that survived the
+        rescan is the same note and must keep doing whatever it was doing —
+        so state is carried across by PATH rather than discarded. Dropping
+        it meant a note being created extinguished the very cascade its own
+        write had started moments earlier.
+        """
+        fresh = self.watcher.graph
+        self.rings = ring_of(fresh)
+        pulses = Pulses(fresh, hops=int(self.cfg["hops"]))
+
+        moved: dict[int, int] = {}
+        for old, path in enumerate(was_graph.paths):
+            new = fresh.by_path.get(path) if path else None
+            if new is None:
+                continue
+            moved[old] = new
+            pulses.energy[new] = was_pulses.energy[old]
+            pulses.decay[new] = was_pulses.decay[old]      # or it reverts to WRITE's
+            pulses.kind_of[new] = was_pulses.kind_of[old]
+
+        # The sparks ARE the cascade — carrying node energy alone would keep
+        # what has already been lit and still cancel every hop still to come.
+        # Edge indices move too, so each spark's edge is re-found by its
+        # endpoints. Anything touching a phantom (no path, so nothing to
+        # match on) is dropped rather than guessed at.
+        edge_at = {(min(a, b), max(a, b)): i for i, (a, b) in enumerate(fresh.edges)}
+        carried = []
+        for edge, target, progress, amplitude, kind, hop in was_pulses._sparks:
+            a, b = was_graph.edges[edge]
+            if a not in moved or b not in moved or target not in moved:
+                continue
+            index = edge_at.get((min(moved[a], moved[b]), max(moved[a], moved[b])))
+            if index is None:
+                continue
+            carried.append([index, moved[target], progress, amplitude, kind, hop])
+        pulses._sparks = carried
+
+        self.pulses = pulses
