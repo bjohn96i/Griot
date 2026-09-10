@@ -138,9 +138,19 @@ def test_the_core_is_drawn_at_the_centre():
 
 def test_the_interior_is_empty_at_rest_and_busy_during_a_cascade():
     """Links are not drawn as chords: at 86x88 dots that is a grey wash. An
-    arc across the disc must only ever mean something is happening."""
+    arc across the disc must only ever mean something is happening.
+
+    Compares minimum lit radius outside the housing rather than a dot count
+    in a fixed band: a fixed 10-15 band mostly counts the housing spokes'
+    own quantized spread (which reaches ~13.0 here, not the nominal 10-12),
+    leaving only a one-dot margin between resting and firing — thin enough
+    that Task 6's visual-tuning pass (ARC_STEPS, the breath factor, the spoke
+    count) could flip it without the underlying behaviour changing. The
+    housing/core floor is measured from the resting scene itself, not
+    hardcoded, so it tracks whatever those constants are retuned to."""
+    from griot.brain.braille import BITS
     from griot.brain.pulse import Pulses, WRITE
-    from griot.brain.reactor import scene
+    from griot.brain.reactor import RING_RADII, scene
     names = [f"N{i}" for i in range(30)]
     paths = [f"/vault/A/n{i}.md" for i in range(30)]
     edges = [(i, i + 1) for i in range(29)]
@@ -153,24 +163,45 @@ def test_the_interior_is_empty_at_rest_and_busy_during_a_cascade():
                     by_path={p: i for i, p in enumerate(paths)},
                     adjacency=adjacency, fingerprint="test")
 
-    def interior_dots(pulses):
-        canvas = scene(graph, pulses, ring_of(graph), cols=43, rows=22,
-                       spin=0.0, core_phase=0.0)
-        lit = 0
+    def lit_radii(canvas):
+        cx, cy = canvas.width / 2.0, canvas.height / 2.0
         for row in range(canvas.rows):
             for col in range(canvas.cols):
-                dx, dy = col * 2 - 43, row * 4 - 44
-                if 10 < (dx * dx + dy * dy) ** 0.5 < 15 and canvas._bits[row][col]:
-                    lit += 1
-        return lit
+                bits = canvas._bits[row][col]
+                if not bits:
+                    continue
+                for dy in range(4):
+                    for dx in range(2):
+                        if bits & BITS[dy][dx]:
+                            x, y = col * 2 + dx, row * 4 + dy
+                            yield math.hypot(x - cx, y - cy)
 
-    quiet = Pulses(graph, hops=5)
+    def min_lit_radius(canvas, floor):
+        candidates = [d for d in lit_radii(canvas) if d > floor]
+        return min(candidates) if candidates else None
+
+    rings = ring_of(graph)
+    quiet = scene(graph, Pulses(graph, hops=5), rings, cols=43, rows=22,
+                  spin=0.0, core_phase=0.0)
+    # Nothing but the core and housing sits inside the innermost note ring
+    # in a resting scene, so its furthest reach there is exactly the
+    # housing's real (quantized) footprint.
+    housing_ceiling = max(d for d in lit_radii(quiet) if d < RING_RADII[0])
+
     firing = Pulses(graph, hops=5)
     firing.positions = None
     firing.hit(0, WRITE)
     firing.advance(0.3)
-    assert interior_dots(firing) > interior_dots(quiet), \
-        "a travelling cascade should put arcs across the empty interior"
+    firing_canvas = scene(graph, firing, rings, cols=43, rows=22,
+                          spin=0.0, core_phase=0.0)
+
+    quiet_radius = min_lit_radius(quiet, housing_ceiling)
+    firing_radius = min_lit_radius(firing_canvas, housing_ceiling)
+    assert quiet_radius is not None and firing_radius is not None
+    assert firing_radius < quiet_radius - 3, \
+        ("a travelling cascade should reach meaningfully further inward "
+         f"than the resting scene: quiet={quiet_radius:.2f}, "
+         f"firing={firing_radius:.2f}")
 
 
 def test_a_lit_note_is_brighter_than_a_resting_one():
