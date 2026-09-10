@@ -111,3 +111,76 @@ def test_spin_rotates_every_node_by_the_same_angle():
         return round(math.hypot(p[0] - 43.0, p[1] - 44.0), 6)
     assert [radius(p) for p in a] == [radius(p) for p in b], \
         "rotation must not change any radius"
+
+
+def test_the_core_is_drawn_at_the_centre():
+    from griot.brain.pulse import Pulses
+    from griot.brain.reactor import scene
+    graph = vault_graph({"A": 20})
+    canvas = scene(graph, Pulses(graph), ring_of(graph), cols=43, rows=22,
+                   spin=0.0, core_phase=0.0)
+    text = canvas.render(["", "#111111", "#222222", "#333333"]).plain
+    middle = text.split("\n")[len(text.split("\n")) // 2]
+    assert middle.strip(), "the middle row must contain the core"
+
+
+def test_the_interior_is_empty_at_rest_and_busy_during_a_cascade():
+    """Links are not drawn as chords: at 86x88 dots that is a grey wash. An
+    arc across the disc must only ever mean something is happening."""
+    from griot.brain.pulse import Pulses, WRITE
+    from griot.brain.reactor import scene
+    names = [f"N{i}" for i in range(30)]
+    paths = [f"/vault/A/n{i}.md" for i in range(30)]
+    edges = [(i, i + 1) for i in range(29)]
+    adjacency = [[] for _ in range(30)]
+    for a, b in edges:
+        adjacency[a].append(b)
+        adjacency[b].append(a)
+    graph = g.Graph(names=names, paths=paths, edges=edges,
+                    degree=[len(x) for x in adjacency],
+                    by_path={p: i for i, p in enumerate(paths)},
+                    adjacency=adjacency, fingerprint="test")
+
+    def interior_dots(pulses):
+        canvas = scene(graph, pulses, ring_of(graph), cols=43, rows=22,
+                       spin=0.0, core_phase=0.0)
+        lit = 0
+        for row in range(canvas.rows):
+            for col in range(canvas.cols):
+                dx, dy = col * 2 - 43, row * 4 - 44
+                if 10 < (dx * dx + dy * dy) ** 0.5 < 15 and canvas._bits[row][col]:
+                    lit += 1
+        return lit
+
+    quiet = Pulses(graph, hops=5)
+    firing = Pulses(graph, hops=5)
+    firing.positions = None
+    firing.hit(0, WRITE)
+    firing.advance(0.3)
+    assert interior_dots(firing) > interior_dots(quiet), \
+        "a travelling cascade should put arcs across the empty interior"
+
+
+def test_a_lit_note_is_brighter_than_a_resting_one():
+    from griot.brain.pulse import Pulses, WRITE
+    from griot.brain.reactor import LEVELS, scene
+    graph = vault_graph({"A": 20})
+    rings = ring_of(graph)
+    quiet = scene(graph, Pulses(graph), rings, 43, 22, 0.0, 0.0)
+    pulses = Pulses(graph)
+    pulses.hit(0, WRITE)
+    hot = scene(graph, pulses, rings, 43, 22, 0.0, 0.0)
+    assert max(map(max, hot._level)) > max(map(max, quiet._level))
+    assert max(map(max, hot._level)) <= LEVELS - 1
+
+
+def test_the_frame_matches_the_requested_size():
+    from griot.brain.pulse import Pulses
+    from griot.brain.reactor import ramp, scene
+    from griot import theme
+    graph = vault_graph({"A": 10})
+    canvas = scene(graph, Pulses(graph), ring_of(graph), cols=30, rows=10,
+                   spin=0.0, core_phase=0.0)
+    lines = canvas.render(ramp(theme.PALETTE)).plain.split("\n")
+    assert len(lines) == 10
+    assert all(len(line) <= 30 for line in lines)

@@ -27,8 +27,8 @@ HOP_FALLOFF = 0.85
 # ring flashing on rather than a signal propagating.
 SPARK_SPEED = 1.0         # edges per second
 SPARK_FANOUT = 3          # onward connections a spark lights from where it lands
-SPARK_FIRST_FANOUT = 12   # from the originating node; a degree-134 hub would
-                          # otherwise spawn 134 sparks and then thousands
+SPARK_FIRST_FANOUT = 6    # was 12: twelve arcs inside an 86-dot disc is a
+                          # starburst, six reads as branching
 MAX_SPARKS = 500
 # Idle life: instead of electrons circulating on every edge, random nodes
 # twinkle on their own. Edge traffic at rest read as noise and competed with
