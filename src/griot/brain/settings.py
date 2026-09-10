@@ -19,6 +19,12 @@ DEFAULTS: dict[str, object] = {
     "enabled": False,
     "fps": 12,
     "hops": 5,
+    # Multipliers on pulse.py's tuned constants, not replacements: 1.0 is the
+    # tuned reactor. `speed` scales how fast a spark crosses a connection,
+    # `spread` scales how many connections each hop lights. `hops` is the
+    # third dial and a different axis — how far out the cascade reaches.
+    "speed": 1.0,
+    "spread": 1.0,
 }
 
 
@@ -35,6 +41,15 @@ def resolve(user: dict) -> dict:
         if value < 1:
             raise ValueError(f"{key}: expected a positive integer, got {value!r}")
         cfg[key] = value
+
+    for key in ("speed", "spread"):
+        try:
+            scale = float(cfg[key])
+        except (TypeError, ValueError):
+            raise ValueError(f"{key}: expected a positive number, got {cfg[key]!r}")
+        if scale <= 0:
+            raise ValueError(f"{key}: expected a positive number, got {scale!r}")
+        cfg[key] = scale
     return cfg
 
 

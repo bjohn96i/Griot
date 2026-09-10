@@ -355,3 +355,24 @@ def test_a_deleted_note_realigns_the_graph_the_rings_and_the_pulses(tmp_path):
     assert w.pulses.energy.shape[0] == w.watcher.graph.n
     assert w.pulses.graph is w.watcher.graph, \
         "the pulses must be rebuilt against the graph actually being drawn"
+
+
+def test_the_config_dials_reach_the_pulses(tmp_path):
+    """speed/spread are config, so they have to survive the trip from the
+    resolved dict into the object that actually uses them."""
+    from griot.brain.pulse import SPARK_FIRST_FANOUT, SPARK_SPEED
+    w = widget(tmp_path, speed=0.5, spread=0.5)
+    assert w.pulses.speed == pytest.approx(SPARK_SPEED * 0.5)
+    assert w.pulses.first_fanout == round(SPARK_FIRST_FANOUT * 0.5)
+
+
+def test_a_rescan_does_not_reset_the_dials_to_default(tmp_path):
+    """The rebuild constructs a fresh Pulses. If it forgets the dials, the
+    reactor silently reverts to stock speed the first time a note is created
+    — which is exactly when you are watching it."""
+    from griot.brain.pulse import SPARK_FIRST_FANOUT, SPARK_SPEED
+    w = widget(tmp_path, speed=0.5, spread=0.5)
+    born(w, "fresh-note")
+    w.tick(now=100.0)
+    assert w.pulses.speed == pytest.approx(SPARK_SPEED * 0.5)
+    assert w.pulses.first_fanout == round(SPARK_FIRST_FANOUT * 0.5)

@@ -43,7 +43,9 @@ class Reactor(Static):
         self.spool = Spool(Path(spool_path))
         self.watcher = BirthWatcher(Path(vault_path), Path(cache_path))
         self.rings = ring_of(self.watcher.graph)
-        self.pulses = Pulses(self.watcher.graph, hops=int(cfg["hops"]))
+        self.pulses = Pulses(self.watcher.graph, hops=int(cfg["hops"]),
+                             speed=float(cfg["speed"]),
+                             spread=float(cfg["spread"]))
         self.last_frame = None
         self._spin = 0.0
         self._phase = 0.0
@@ -191,7 +193,9 @@ class Reactor(Static):
         """
         fresh = self.watcher.graph
         self.rings = ring_of(fresh)
-        pulses = Pulses(fresh, hops=int(self.cfg["hops"]))
+        pulses = Pulses(fresh, hops=int(self.cfg["hops"]),
+                        speed=float(self.cfg["speed"]),
+                        spread=float(self.cfg["spread"]))
 
         moved: dict[int, int] = {}
         for old, path in enumerate(was_graph.paths):

@@ -77,4 +77,12 @@ name = "vibranium-night"
 [brain]
 enabled = false
 fps     = 12       # smoothness only; every timing is wall-clock
-hops    = 5        # how far a cascade travels
+# Three dials shape a cascade, on three different axes.
+hops    = 5        # how FAR out it reaches — nodes from the origin
+spread  = 1.0      # how WIDE each hop fans — x the tuned 6-then-3 connections
+speed   = 1.0      # how FAST a spark crosses one connection
+# spread and speed are multipliers, so 1.0 is the tuned reactor and smaller is
+# calmer. If a write to a hub feels like too much at once, lower `spread`; if
+# it reaches further across the vault than you want, lower `hops`; if it just
+# happens too quickly to watch, lower `speed`. A gentler starting point:
+# hops = 4, spread = 0.6, speed = 0.6

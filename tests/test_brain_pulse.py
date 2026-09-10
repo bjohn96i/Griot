@@ -177,3 +177,67 @@ def test_idle_twinkles_stir_nodes_without_cascading():
     assert not p._sparks, "an idle twinkle must not cascade"
     assert float(p.energy.max()) <= IDLE_AMPLITUDE + 1e-6, \
         "idle twinkles must stay well below a real read or write"
+
+
+def star(n: int) -> g.Graph:
+    """One hub at index 0 wired to n-1 leaves — enough neighbours that the
+    first fan-out is the binding limit rather than the node's degree."""
+    names = [f"N{i}" for i in range(n)]
+    edges = [(0, i) for i in range(1, n)]
+    adjacency = [[] for _ in range(n)]
+    for a, b in edges:
+        adjacency[a].append(b)
+        adjacency[b].append(a)
+    return g.Graph(names=names, paths=[None] * n, edges=edges,
+                   degree=[len(x) for x in adjacency], by_path={},
+                   adjacency=adjacency, fingerprint="test")
+
+
+def test_speed_scales_how_far_a_spark_travels():
+    """`speed` is a multiplier on SPARK_SPEED, so half the speed covers half
+    the edge in the same wall-clock second."""
+    slow, fast = Pulses(chain(6), speed=0.5), Pulses(chain(6), speed=1.0)
+    for p in (slow, fast):
+        p.hit(0, WRITE)
+    slow.advance(0.4)
+    fast.advance(0.4)
+    slow_progress = slow.sparks()[0][1]
+    fast_progress = fast.sparks()[0][1]
+    assert slow_progress == pytest.approx(fast_progress / 2.0)
+
+
+def test_speed_does_not_change_where_a_spark_ends_up():
+    """Only the pace changes. Given twice as long, the slow cascade must reach
+    the same node — otherwise `speed` is silently a reach dial too."""
+    slow = Pulses(chain(6), speed=0.5)
+    slow.hit(0, WRITE)
+    for _ in range(20):
+        slow.advance(0.1)
+    assert slow.energy[1] > 0.0, "the first neighbour must still be reached"
+
+
+def test_spread_scales_the_first_fanout():
+    wide = Pulses(star(40), spread=1.0)
+    narrow = Pulses(star(40), spread=0.5)
+    wide.hit(0, WRITE)
+    narrow.hit(0, WRITE)
+    assert len(wide.sparks()) == SPARK_FIRST_FANOUT
+    assert len(narrow.sparks()) == round(SPARK_FIRST_FANOUT * 0.5)
+
+
+def test_spread_never_silences_a_cascade_entirely():
+    """Flooring at 1 matters: a multiplier small enough to round to zero would
+    turn every hit into a lone dot with no cascade at all."""
+    p = Pulses(star(40), spread=0.01)
+    p.hit(0, WRITE)
+    assert len(p.sparks()) >= 1
+
+
+def test_the_defaults_reproduce_the_tuned_constants():
+    """speed=1.0 / spread=1.0 must be exactly today's behaviour, so adding the
+    dials cannot quietly re-tune the reactor for anyone who never sets them."""
+    p = Pulses(star(40))
+    p.hit(0, WRITE)
+    assert len(p.sparks()) == SPARK_FIRST_FANOUT
+    p.advance(0.25)
+    assert p.sparks()[0][1] == pytest.approx(SPARK_SPEED * 0.25)

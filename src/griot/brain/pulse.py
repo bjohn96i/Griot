@@ -45,9 +45,18 @@ KINDS = {
 
 
 class Pulses:
-    def __init__(self, graph: Graph, hops: int = 3) -> None:
+    def __init__(self, graph: Graph, hops: int = 5, speed: float = 1.0,
+                 spread: float = 1.0) -> None:
         self.graph = graph
         self.hops = hops
+        # `speed` and `spread` are multipliers on the tuned constants rather
+        # than replacements for them, so 1.0 is exactly the tuned reactor and
+        # the constants stay the single place the baseline is recorded.
+        # Fan-outs floor at 1: a multiplier small enough to round to zero
+        # would turn every hit into a lone dot with no cascade at all.
+        self.speed = SPARK_SPEED * speed
+        self.first_fanout = max(1, round(SPARK_FIRST_FANOUT * spread))
+        self.fanout = max(1, round(SPARK_FANOUT * spread))
         self.energy = np.zeros(graph.n, np.float32)
         self.decay = np.full(graph.n, KINDS[WRITE]["decay"], np.float32)
         self.kind_of = np.array([WRITE] * graph.n, dtype=object)
@@ -83,7 +92,7 @@ class Pulses:
         limit = min(self.hops, KINDS[kind]["hops"])
         if hop > limit or amplitude < QUIET:
             return
-        fan = SPARK_FIRST_FANOUT if hop == 1 else SPARK_FANOUT
+        fan = self.first_fanout if hop == 1 else self.fanout
         room = MAX_SPARKS - len(self._sparks)
         if room <= 0:
             return
@@ -117,7 +126,7 @@ class Pulses:
         if self._sparks:
             arrived, travelling = [], []
             for spark in self._sparks:
-                spark[2] += SPARK_SPEED * dt
+                spark[2] += self.speed * dt
                 (arrived if spark[2] >= 1.0 else travelling).append(spark)
             self._sparks = travelling
             for index, node, _progress, amplitude, kind, hop in arrived:
