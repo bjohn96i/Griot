@@ -69,6 +69,24 @@ def test_suppression_expires(tmp_path):
     assert not w.swallows_write(unknown, 99.0)
 
 
+def test_a_cache_write_failure_is_caught_by_the_handler(tmp_path):
+    """load_or_build's cache write is not inside its own try/except, so an
+    OSError from the write step (e.g. cache_path is a directory) propagates
+    straight into poll(). poll()'s except OSError must swallow it and keep
+    the previous graph, the same contract as any other rescan fault."""
+    vault = tmp_path / "vault"; vault.mkdir()
+    write_note(vault, "A.md")
+    cache_path = tmp_path / "graph.json"
+    w = BirthWatcher(vault, cache_path, interval=0.0)
+    w.poll(0.0)
+    before = w.graph
+    cache_path.unlink()
+    cache_path.mkdir()                            # cache write will now raise OSError
+    write_note(vault, "B.md")
+    assert w.poll(1.0) == []
+    assert w.graph is before, "a cache-write fault must not blank the reactor"
+
+
 def test_a_vault_that_cannot_be_read_keeps_the_previous_graph(tmp_path):
     vault = tmp_path / "vault"; vault.mkdir()
     write_note(vault, "A.md")
