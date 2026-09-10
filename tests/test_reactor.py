@@ -196,3 +196,68 @@ def test_the_frame_matches_the_requested_size():
     lines = canvas.render(ramp(theme.PALETTE)).plain.split("\n")
     assert len(lines) == 10
     assert all(len(line) <= 30 for line in lines)
+
+
+def test_a_spark_between_near_antipodal_nodes_sweeps_around_the_core():
+    """angle_of is a hash over hundreds of paths in a real vault, so two ring
+    positions landing on almost opposite sides of the disc is common, not a
+    corner case. A straight Cartesian interpolation between antipodal points
+    lerps through the origin — i.e. straight through the core — no matter how
+    hard it is scaled toward the centre. The arc must curve around instead.
+
+    This drives `_draw_arc` directly on a bare canvas rather than diffing a
+    full `scene()` render against a quiet one: the core disc at CORE_RADIUS *
+    breath (~5.1, but its disc-fill sampling and the 2x4 braille cell grid
+    round its *rendered* footprint out to ~5.8) already covers essentially
+    every pixel a through-the-centre arc would touch, in both the quiet and
+    the firing frame alike — so a same-cell "was this bit already lit"
+    diff can never see a dot that lands where the core already is. The
+    through-core failure this test exists to catch is invisible to that
+    approach; only `_draw_arc`'s own output can be checked directly."""
+    from griot.brain.braille import BITS, Canvas
+    from griot.brain.reactor import CORE_RADIUS, _draw_arc, angle_of, positions
+
+    # Search for a near-antipodal pair. angle_of is a deterministic hash, so
+    # this search always finds the same pair — it is not a source of flakiness.
+    candidates = [f"/vault/A/n{i}.md" for i in range(200)]
+    angles = [angle_of(p) for p in candidates]
+    best = None
+    for i in range(len(candidates)):
+        for j in range(i + 1, len(candidates)):
+            separation = abs(angles[i] - angles[j])
+            separation = min(separation, 2 * math.pi - separation)
+            score = abs(separation - math.pi)
+            if best is None or score < best[0]:
+                best = (score, i, j, separation)
+    _, i, j, separation = best
+    assert separation == pytest.approx(math.pi, abs=0.01), \
+        f"could not find a near-antipodal pair among the candidates; " \
+        f"closest separation found was {separation}, not close to pi"
+
+    paths = [candidates[i], candidates[j]]
+    names = ["A0", "A1"]
+    graph = g.Graph(names=names, paths=paths, edges=[(0, 1)], degree=[1, 1],
+                    by_path={paths[0]: 0, paths[1]: 1},
+                    adjacency=[[1], [0]], fingerprint="test")
+    rings = ring_of(graph)
+    cx, cy = 43.0, 44.0
+    (ax, ay), (bx, by) = positions(graph, rings, (cx, cy), 0.0)
+
+    canvas = Canvas(43, 22)
+    _draw_arc(canvas, cx, cy, ax, ay, bx, by, head=0.5, level=3)
+
+    for row in range(canvas.rows):
+        for col in range(canvas.cols):
+            bits = canvas._bits[row][col]
+            if not bits:
+                continue
+            for dy in range(4):
+                for dx in range(2):
+                    if bits & BITS[dy][dx]:
+                        x, y = col * 2 + dx, row * 4 + dy
+                        distance = math.hypot(x - cx, y - cy)
+                        assert distance >= CORE_RADIUS, \
+                            ("a spark between near-antipodal nodes drew a dot "
+                             f"at distance {distance:.2f} from the centre, "
+                             f"inside CORE_RADIUS={CORE_RADIUS} — it went "
+                             "through the core instead of around it")
