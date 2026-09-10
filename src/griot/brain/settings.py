@@ -18,12 +18,8 @@ GRAPH_CACHE = CACHE_DIR / "graph.json"
 
 DEFAULTS: dict[str, object] = {
     "enabled": False,
-    "fps_idle": 3,
-    "fps_active": 15,
-    "active_window": 4.0,
-    "size": (900, 560),
-    "hops": 3,
-    "socket": "",
+    "fps": 12,
+    "hops": 5,
 }
 
 
@@ -31,9 +27,8 @@ def resolve(user: dict) -> dict:
     """Effective brain config: built-in defaults < user. Validates before returning."""
     cfg = {**DEFAULTS, **user}
     cfg["enabled"] = bool(cfg["enabled"])
-    cfg["socket"] = str(cfg["socket"])
 
-    for key in ("fps_idle", "fps_active", "hops"):
+    for key in ("fps", "hops"):
         try:
             value = int(cfg[key])
         except (TypeError, ValueError):
@@ -41,28 +36,6 @@ def resolve(user: dict) -> dict:
         if value < 1:
             raise ValueError(f"{key}: expected a positive integer, got {value!r}")
         cfg[key] = value
-    if cfg["fps_idle"] > cfg["fps_active"]:
-        raise ValueError(f"fps_idle ({cfg['fps_idle']}) must not exceed "
-                         f"fps_active ({cfg['fps_active']})")
-
-    try:
-        window = float(cfg["active_window"])
-    except (TypeError, ValueError):
-        raise ValueError(f"active_window: expected a number, got {cfg['active_window']!r}")
-    if window < 0:
-        raise ValueError(f"active_window: expected a non-negative number, got {window!r}")
-    cfg["active_window"] = window
-
-    size = tuple(cfg["size"])
-    if len(size) != 2:
-        raise ValueError(f"size: expected [width, height], got {cfg['size']!r}")
-    try:
-        w, h = int(size[0]), int(size[1])
-    except (TypeError, ValueError):
-        raise ValueError(f"size: expected two integers, got {cfg['size']!r}")
-    if w < 1 or h < 1:
-        raise ValueError(f"size: expected positive dimensions, got {w}x{h}")
-    cfg["size"] = (w, h)
     return cfg
 
 

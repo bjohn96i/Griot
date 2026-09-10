@@ -7,28 +7,27 @@ from griot.brain import settings
 def test_defaults_are_opt_in():
     cfg = settings.resolve({})
     assert cfg["enabled"] is False
-    assert cfg["fps_idle"] == 3
-    assert cfg["fps_active"] == 15
-    assert cfg["hops"] == 3
-    assert cfg["size"] == (900, 560)
-    assert cfg["socket"] == ""
+    assert cfg["fps"] == 12
+    assert cfg["hops"] == 5
 
 
 def test_user_values_override_defaults():
-    cfg = settings.resolve({"enabled": True, "fps_active": 10, "size": [640, 400]})
+    cfg = settings.resolve({"enabled": True, "fps": 24, "hops": 8})
     assert cfg["enabled"] is True
-    assert cfg["fps_active"] == 10
-    assert cfg["size"] == (640, 400)
+    assert cfg["fps"] == 24
+    assert cfg["hops"] == 8
+
+
+def test_the_kitty_era_keys_are_gone():
+    cfg = settings.resolve({})
+    assert set(cfg) == {"enabled", "fps", "hops"}
 
 
 @pytest.mark.parametrize("bad, message", [
-    ({"fps_idle": 0}, "fps_idle"),
-    ({"fps_active": 0}, "fps_active"),
-    ({"fps_idle": 20, "fps_active": 5}, "fps_idle"),
+    ({"fps": 0}, "fps"),
+    ({"fps": -1}, "fps"),
     ({"hops": 0}, "hops"),
-    ({"active_window": -1}, "active_window"),
-    ({"size": [900]}, "size"),
-    ({"size": [0, 560]}, "size"),
+    ({"hops": -1}, "hops"),
 ])
 def test_invalid_values_are_rejected_by_name(bad, message):
     with pytest.raises(ValueError) as e:

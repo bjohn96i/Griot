@@ -71,13 +71,10 @@ name = "vibranium-night"
 # `m` in the status pane mutes; the state is a flag file, so both panes agree
 # and it survives a restart. The footer at the bottom of the pane shows it.
 
-# The vault's link graph as a live background behind the center pane.
-# Requires kitty with remote control — see README "Brain background".
+# The vault as an arc reactor in the bottom of the right pane. Notes are
+# points on rings, the core is the vault, and reads, writes and new notes
+# light it up.
 [brain]
-enabled       = false
-fps_idle      = 3       # frames/sec when nothing is happening
-fps_active    = 15      # frames/sec for `active_window` after a read or write
-active_window = 4.0
-size          = [900, 560]
-hops          = 3       # how far a pulse propagates
-socket        = ""      # optional; overrides KITTY_LISTEN_ON discovery
+enabled = false
+fps     = 12       # smoothness only; every timing is wall-clock
+hops    = 5        # how far a cascade travels

@@ -9,10 +9,12 @@ from textual.message import Message
 from textual.widgets import Static
 
 from griot import sound, theme
+from griot.brain import settings as brain_settings
 from griot.config import Config, load_config
 from griot.status import sources
 from griot.status import animation as anim
 from griot.status.animation import Animation
+from griot.status.reactor_widget import Reactor
 
 
 class PolledStatus(Static):
@@ -317,6 +319,8 @@ class StatusApp(App):
         self.config = cfg
         self.animation_cfg = anim.resolve(theme.default_animation(), self.config.animation)
         self.sound_cfg = sound.resolve(theme.default_sound(), self.config.sound)
+        self.brain_cfg = brain_settings.resolve(self.config.brain)
+        brain_settings.write_params(self.brain_cfg)
         self.notifier = notifier or sources.notify
         f = fetchers or {}
         self.fetchers = {
@@ -356,6 +360,10 @@ class StatusApp(App):
             yield NetworkPanel(self.fetchers["network"],
                                redis_port=self.config.redis_tunnel_port, id="network")
             yield UsagePanel(self.fetchers["usage"], id="usage")
+        if self.brain_cfg["enabled"]:
+            yield Reactor(self.brain_cfg, self.config.vault_path,
+                          brain_settings.SPOOL_FILE, brain_settings.GRAPH_CACHE,
+                          id="reactor")
         yield DriveFooter(bool(self.sound_cfg["enabled"]), id="drive-footer")
 
     def on_polled_status_changed(self, message: PolledStatus.Changed) -> None:
