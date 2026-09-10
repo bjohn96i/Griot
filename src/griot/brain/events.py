@@ -26,7 +26,17 @@ class Spool:
     def __init__(self, path: Path, max_bytes: int = 65536) -> None:
         self.path = Path(path)
         self.max_bytes = max_bytes
-        self.offset = 0
+        # Start at the END of whatever is already on disk. The hook keeps
+        # appending long after the status app has exited, so at the next
+        # launch the spool holds a whole stale session — starting at 0
+        # replayed all of it as if it had just happened. Measured on a
+        # 36-line stale spool: 12 of 16 nodes above 0.5 energy and 72 sparks
+        # in flight on the very first frame. The reactor must open quiet and
+        # show only what happens from launch onward.
+        try:
+            self.offset = self.path.stat().st_size
+        except OSError:
+            self.offset = 0        # no spool yet; the hook will create it
 
     def read_new(self) -> list[Event]:
         try:
