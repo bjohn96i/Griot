@@ -17,12 +17,22 @@ from textual.widgets import Static
 from griot import theme
 from griot.brain.births import BirthWatcher
 from griot.brain.events import Spool, resolve as resolve_events
-from griot.brain.pulse import Pulses, WRITE
+from griot.brain.pulse import Pulses, READ, WRITE
 from griot.brain.reactor import positions, ramp, ring_of, scene
 
 SPIN_RATE = 0.05          # radians per second
 CORE_RATE = 1.1           # core breathing, radians per second
 BIRTH_AMPLITUDE = 1.0
+# What an event gives the core. The spec: "every event feeds the core, so
+# the reactor draws power from wherever the work is happening" — a write is
+# the heavier event and a birth is the one the feature exists for.
+CORE_GAIN = {READ: 0.45, WRITE: 0.7}
+BIRTH_CORE_GAIN = 1.0
+# The core cools on the same constant a written node does, so the flare and
+# the dot that caused it fade together instead of drifting apart.
+CORE_DECAY = 1.6
+FEED_TIME = 0.5           # seconds for an inward arc to reach the core
+MAX_FEEDS = 24            # a burst of parallel tool calls is a starburst otherwise
 
 
 class Reactor(Static):
@@ -38,6 +48,8 @@ class Reactor(Static):
         self._spin = 0.0
         self._phase = 0.0
         self._previous = None
+        self._core = 0.0                     # the vault's own activity, 0..1
+        self._feeds: list[list] = []         # [node index, how far in 0..1]
 
     def _dims(self) -> tuple[int, int]:
         """Textual only knows the real size once mounted; tests drive tick()
@@ -70,6 +82,7 @@ class Reactor(Static):
         self._spin += SPIN_RATE * step
         self._phase += CORE_RATE * step
         self.pulses.advance(step)
+        self._cool(step)
 
         # Rebuild ONCE for the whole rescan, not once per birth. The rebuild
         # replaces self.pulses, so doing it inside the loop meant each birth
@@ -85,16 +98,20 @@ class Reactor(Static):
             for index in born:          # indices into the NEW graph
                 self.pulses.energy[index] = BIRTH_AMPLITUDE
                 self.pulses.kind_of[index] = WRITE
+                self._charge(index, BIRTH_CORE_GAIN)
 
         for node, kind in resolve_events(self.spool.read_new(), self.watcher.graph):
             path = self.watcher.graph.paths[node]
             if kind == "write" and path and self.watcher.swallows_write(path, now):
                 continue          # its birth is coming, and that is the better event
             self.pulses.hit(node, kind)
+            self._charge(node, CORE_GAIN[kind])
 
         cols, rows = self._dims()
         canvas = scene(self.watcher.graph, self.pulses, self.rings,
-                       cols, rows, self._spin, self._phase)
+                       cols, rows, self._spin, self._phase,
+                       core_energy=self._core,
+                       feeds=[(index, head) for index, head in self._feeds])
         # pulse.Pulses._emit() ranks a node's onward connections by squared
         # distance via vector subtraction (`self.positions[c[1]] - here`),
         # which a plain list of tuples does not support — reactor.positions()
@@ -145,4 +162,27 @@ class Reactor(Static):
             carried.append([index, moved[target], progress, amplitude, kind, hop])
         pulses._sparks = carried
 
+        self._feeds = [[moved[i], head] for i, head in self._feeds if i in moved]
         self.pulses = pulses
+
+    def _cool(self, step: float) -> None:
+        """The core loses charge the way a node does, and the arcs feeding
+        it keep travelling inward."""
+        self._core *= math.exp(-step / CORE_DECAY)
+        if self._core < 0.005:
+            self._core = 0.0
+        for feed in self._feeds:
+            feed[1] += step / FEED_TIME
+        self._feeds = [f for f in self._feeds if f[1] <= 1.0]
+
+    def _charge(self, index: int, gain: float) -> None:
+        """An event reaching the vault: the core takes power from it and an
+        arc runs inward from the note it happened to.
+
+        Only real events do this. Idle twinkles set node energy directly and
+        never come through here, so a resting reactor keeps a still core —
+        an arc across the disc always means something is happening.
+        """
+        self._core = min(1.0, self._core + gain)
+        if len(self._feeds) < MAX_FEEDS:
+            self._feeds.append([index, 0.0])

@@ -105,6 +105,17 @@ ARC_STEPS = 14
 # all — this has to be strong enough that the dip reaches the interior even
 # for that near-parallel case, not just for near-antipodal pairs.
 ARC_BOW = 0.8
+# How far the core swells at full activity. The resting disc breathes
+# between 0.85 and 1.00 of CORE_RADIUS; a full surge takes it to 1.50, or
+# 9.0 dots, which stays clear of HOUSING_RADIUS 10 at the top of the breath.
+CORE_FLARE = 0.5
+# Above this the core burns at the top level instead of its resting one, so
+# a busy vault is brighter and not merely bigger.
+CORE_HOT = 0.3
+# A feed: the arc that runs inward from a freshly hit note to the core, so
+# an event visibly REACHES the vault rather than only marking its own dot.
+FEED_STEPS = 16
+FEED_SWEEP = 0.35          # radians of sideways lean, so it arcs rather than spokes
 
 
 def ramp(palette: dict[str, str]) -> list[str]:
@@ -159,10 +170,40 @@ def _draw_arc(canvas: Canvas, cx: float, cy: float, ax: float, ay: float,
         canvas.plot(cx + radius * math.cos(angle), cy + radius * math.sin(angle), level)
 
 
+def _draw_feed(canvas: Canvas, cx: float, cy: float, x: float, y: float,
+               head: float, level: int, inner: float) -> None:
+    """The arc a hit note runs inward to the core.
+
+    The spec says it three times — "every event feeds the core", and a birth
+    at t=0.8 "an arc runs to the core, which flares" — and it is the whole
+    reason the core is the vault rather than an ornament. It leans sideways
+    on the way in so it reads as an arc drawn toward the centre rather than
+    a spoke of the housing.
+    """
+    radius = math.hypot(x - cx, y - cy)
+    if radius <= inner:
+        return
+    angle = math.atan2(y - cy, x - cx)
+    for step in range(FEED_STEPS):
+        f = step / max(1, FEED_STEPS - 1)
+        if f > head:
+            break
+        r = radius + (inner - radius) * f
+        a = angle + FEED_SWEEP * math.sin(math.pi * f)
+        canvas.plot(cx + r * math.cos(a), cy + r * math.sin(a), level)
+
+
 def scene(graph: Graph, pulses, rings: list[int], cols: int, rows: int,
-          spin: float, core_phase: float) -> Canvas:
+          spin: float, core_phase: float, core_energy: float = 0.0,
+          feeds: list[tuple[int, float]] | None = None) -> Canvas:
     """One frame. The interior is deliberately empty apart from travelling
-    arcs — drawing every link as a chord is a grey wash at this size."""
+    arcs — drawing every link as a chord is a grey wash at this size.
+
+    `core_energy` is the vault's own activity, 0..1, and `feeds` are
+    (node index, how far the arc has run 0..1) for events on their way in.
+    Both default to nothing at all, so a resting frame is exactly the frame
+    this drew before the core learned to react.
+    """
     canvas = Canvas(cols, rows)
     cx, cy = canvas.width / 2.0, canvas.height / 2.0
 
@@ -174,12 +215,23 @@ def scene(graph: Graph, pulses, rings: list[int], cols: int, rows: int,
             r = HOUSING_RADIUS + step
             canvas.plot(cx + r * math.cos(angle), cy + r * math.sin(angle), 1)
 
-    # the core: the vault itself, breathing
-    breath = 0.85 + 0.15 * math.sin(core_phase)
-    _draw_disc(canvas, cx, cy, CORE_RADIUS * breath, LEVELS - 2)
+    # the core: the vault itself, breathing — and flaring with whatever the
+    # assistant is doing to it. At surge 0 both terms vanish and this is the
+    # resting disc unchanged.
+    surge = max(0.0, min(1.0, core_energy))
+    breath = 0.85 + 0.15 * math.sin(core_phase) + CORE_FLARE * surge
+    _draw_disc(canvas, cx, cy, CORE_RADIUS * breath,
+               LEVELS - 1 if surge >= CORE_HOT else LEVELS - 2)
 
     # arcs for sparks in flight, from one ring position to another
     node_pos = positions(graph, rings, (cx, cy), spin)
+
+    # and arcs running inward, from a note that was just hit to the core
+    for index, head in (feeds or ()):
+        if 0 <= index < len(node_pos):
+            x, y = node_pos[index]
+            _draw_feed(canvas, cx, cy, x, y, max(0.0, min(1.0, head)),
+                       LEVELS - 1, CORE_RADIUS * breath)
     for edge_index, t, amplitude in pulses.sparks():
         a, b = graph.edges[edge_index]
         ax, ay = node_pos[a]

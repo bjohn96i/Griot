@@ -1,4 +1,6 @@
 """The widget: a timer, a spool, and a frame. No terminal required."""
+import math
+
 import pytest
 
 from griot.brain import settings
@@ -184,3 +186,99 @@ def test_the_rebuild_carries_state_by_path_not_by_index(tmp_path):
     assert {tuple(sorted((fresh.paths[a], fresh.paths[b])))
             for a, b, *_ in ((*fresh.edges[s[0]], ) for s in w.pulses._sparks)} == edge_paths, \
         "a carried spark has to keep riding the same two notes"
+
+
+# --- the core reacts --------------------------------------------------------
+
+def test_a_read_charges_the_core_and_sends_an_arc_inward(tmp_path):
+    """The core is the vault. Before this it ran on a free-running sine and
+    reacted to nothing, so a write to an unlinked note lit one dot for
+    0.46s and the reactor never acknowledged it."""
+    w = widget(tmp_path)
+    w.tick(now=0.0)
+    assert w._core == 0.0, "the reactor opens quiet"
+
+    target = next(iter(w.watcher.graph.by_path))
+    (tmp_path / "events").write_text(f"1 read {target}\n")
+    w.tick(now=0.1)
+
+    assert w._core > 0.0, "an event has to reach the core"
+    node = w.watcher.graph.by_path[target]
+    assert [i for i, _ in w._feeds] == [node], "and draw an arc in from that note"
+
+
+def test_a_write_gives_the_core_more_than_a_read_does(tmp_path):
+    """The read/write asymmetry the drive established, carried into the
+    core: a write is the heavier event."""
+    reader = widget(tmp_path / "r")
+    writer = widget(tmp_path / "w")
+    for w, kind in ((reader, "read"), (writer, "write")):
+        w.tick(now=0.0)
+        target = next(iter(w.watcher.graph.by_path))
+        (w.spool.path).write_text(f"1 {kind} {target}\n")
+        # a known note, so swallows_write() cannot eat the write
+        w.tick(now=0.1)
+    assert writer._core > reader._core > 0.0
+
+
+def test_the_core_cools_back_down_when_nothing_is_happening(tmp_path):
+    w = widget(tmp_path)
+    w.tick(now=0.0)
+    target = next(iter(w.watcher.graph.by_path))
+    (tmp_path / "events").write_text(f"1 read {target}\n")
+    w.tick(now=0.1)
+    charged = w._core
+
+    for i in range(2, 60):
+        w.tick(now=i * 0.1)
+    assert w._core < charged * 0.05, \
+        f"the core has to fade, not latch on: {charged} -> {w._core}"
+    assert w._feeds == [], "and its feed arcs have to expire"
+
+
+def test_an_idle_twinkle_never_touches_the_core(tmp_path):
+    """Twinkles set node energy directly rather than going through hit(), so
+    the interior must stay dark at rest — an arc across the disc always
+    means something is really happening."""
+    w = widget(tmp_path)
+    for i in range(40):
+        w.tick(now=i * 0.1)
+    assert float(w.pulses.energy.max()) > 0.0, "the fixture has to be twinkling"
+    assert w._core == 0.0
+    assert w._feeds == []
+
+
+def test_a_birth_charges_the_core_hardest(tmp_path):
+    """A new note is the event the whole widget exists for."""
+    w = widget(tmp_path)
+    w.tick(now=0.0)
+    born(w, "newcomer")
+    w.tick(now=6.0)
+    assert w._core == 1.0
+    assert len(w._feeds) == 1
+
+
+def test_the_rendered_core_grows_while_the_vault_is_busy(tmp_path):
+    """The end of the chain: charge really does reach the frame."""
+    w = widget(tmp_path)
+    w.tick(now=0.0)
+
+    def core_cells():
+        """Cells lit inside the housing. Measured on the rendered text, so
+        this fails unless the charge survives every step from the spool to
+        the glyphs. r<5 saturates at 8 cells in both states and cannot tell
+        them apart; the housing itself starts at r=9."""
+        frame = w.last_frame.plain.split("\n")
+        return sum(1 for row, line in enumerate(frame)
+                   for col, ch in enumerate(line)
+                   if ch != " " and math.hypot(col * 2 + 1 - 43, row * 4 + 1.5 - 44) < 8)
+
+    target = next(iter(w.watcher.graph.by_path))
+    (tmp_path / "events").write_text(f"1 write {target}\n")
+    w.tick(now=0.05)
+    busy = core_cells()
+    for i in range(1, 200):
+        w.tick(now=0.05 + i * 0.1)
+    assert w._core == 0.0
+    assert busy > core_cells() * 1.25, \
+        f"the core must be visibly larger while working: {busy} vs {core_cells()}"

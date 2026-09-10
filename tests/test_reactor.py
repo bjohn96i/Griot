@@ -292,3 +292,115 @@ def test_a_spark_between_near_antipodal_nodes_sweeps_around_the_core():
                              f"at distance {distance:.2f} from the centre, "
                              f"inside CORE_RADIUS={CORE_RADIUS} — it went "
                              "through the core instead of around it")
+
+
+# --- the core reacting to activity ------------------------------------------
+
+def _dot_set(canvas):
+    from griot.brain.braille import BITS
+    out = set()
+    for row in range(canvas.rows):
+        for col in range(canvas.cols):
+            bits = canvas._bits[row][col]
+            for dy in range(4):
+                for dx in range(2):
+                    if bits & BITS[dy][dx]:
+                        out.add((col * 2 + dx, row * 4 + dy))
+    return out
+
+
+def test_the_resting_core_is_exactly_the_disc_it_always_was():
+    """core_energy defaults to 0, and at 0 the core must be untouched — the
+    resting picture is the one that was reviewed and approved.
+
+    The pre-change formula is recomputed here rather than compared against
+    scene()'s own defaults, which would be tautological: a mutant that adds
+    a constant to `breath`, or draws the resting core at the top level, has
+    to fail this.
+    """
+    from griot.brain.braille import Canvas
+    from griot.brain.pulse import Pulses
+    from griot.brain.reactor import CORE_RADIUS, LEVELS, _draw_disc, scene
+    graph = vault_graph({"A": 20})
+    rings = ring_of(graph)
+    for phase in (0.0, 1.1, math.pi / 2, 4.2):
+        canvas = scene(graph, Pulses(graph), rings, 43, 22, 0.0, phase)
+        expected = Canvas(43, 22)
+        cx, cy = expected.width / 2.0, expected.height / 2.0
+        _draw_disc(expected, cx, cy,
+                   CORE_RADIUS * (0.85 + 0.15 * math.sin(phase)), LEVELS - 2)
+        for row in range(canvas.rows):
+            for col in range(canvas.cols):
+                dx, dy = col * 2 - 43, row * 4 - 44
+                if (dx * dx + dy * dy) ** 0.5 >= 5:
+                    continue          # outside the core-only disc
+                assert canvas._bits[row][col] == expected._bits[row][col], \
+                    f"resting core geometry moved at phase {phase}"
+                assert canvas._level[row][col] == expected._level[row][col], \
+                    f"resting core brightness moved at phase {phase}"
+
+
+@pytest.mark.parametrize("phase", [0.0, math.pi / 2])
+def test_the_core_flares_when_the_vault_is_busy(phase):
+    """"Every event feeds the core, so the reactor draws power from wherever
+    the work is happening." A busy core has to be visibly bigger AND
+    brighter than a resting one, not merely different."""
+    from griot.brain.pulse import Pulses
+    from griot.brain.reactor import HOUSING_RADIUS, LEVELS, scene
+    graph = vault_graph({"A": 20})
+    rings = ring_of(graph)
+    quiet = scene(graph, Pulses(graph), rings, 43, 22, 0.0, phase)
+    busy = scene(graph, Pulses(graph), rings, 43, 22, 0.0, phase, core_energy=1.0)
+
+    # 8.5 is inside the housing, whose own dots quantize inward to r=9.06,
+    # so nothing but the core can be counted here.
+    def core_dots(canvas):
+        cx, cy = canvas.width / 2.0, canvas.height / 2.0
+        return sum(1 for x, y in _dot_set(canvas) if math.hypot(x - cx, y - cy) < 8.5)
+
+    def core_level(canvas):
+        cx, cy = canvas.width / 2.0, canvas.height / 2.0
+        return max(canvas._level[row][col]
+                   for row in range(canvas.rows) for col in range(canvas.cols)
+                   if canvas._bits[row][col]
+                   and math.hypot(col * 2 - cx, row * 4 - cy) < 5)
+
+    assert core_dots(busy) > core_dots(quiet) * 1.5, \
+        f"the core should swell: quiet={core_dots(quiet)}, busy={core_dots(busy)}"
+    assert core_level(busy) > core_level(quiet), "and burn brighter, not only bigger"
+    assert core_level(busy) == LEVELS - 1
+
+    cx, cy = busy.width / 2.0, busy.height / 2.0
+    assert max(math.hypot(x - cx, y - cy) for x, y in _dot_set(busy)
+               if math.hypot(x - cx, y - cy) < 8.5) < HOUSING_RADIUS, \
+        "a full flare must stay inside its housing"
+
+
+def test_a_feed_arc_runs_from_the_hit_note_all_the_way_to_the_core():
+    """A write to an unlinked note used to produce one dot brightening for
+    0.46s and nothing else. The spec promises an arc that reaches the core,
+    and README ships that promise to the user."""
+    from griot.brain.pulse import Pulses
+    from griot.brain.reactor import CORE_RADIUS, RING_RADII, scene
+    graph = vault_graph({"A": 20})
+    rings = ring_of(graph)
+    cx, cy = 43.0, 44.0
+    quiet = scene(graph, Pulses(graph), rings, 43, 22, 0.0, 0.0)
+
+    def reach(head):
+        fed = scene(graph, Pulses(graph), rings, 43, 22, 0.0, 0.0,
+                    core_energy=0.0, feeds=[(0, head)])
+        new = [math.hypot(x - cx, y - cy) for x, y in _dot_set(fed) - _dot_set(quiet)]
+        return (min(new), max(new)) if new else (None, None)
+
+    landed, started = reach(1.0)
+    assert landed is not None, "a feed has to draw something"
+    assert started > RING_RADII[rings[0]] - 2, \
+        f"the arc has to start at the note that was hit, got {started:.2f}"
+    assert landed < CORE_RADIUS + 2, \
+        f"and reach the core: nearest dot was {landed:.2f} from the centre"
+
+    # ...and it gets there over time rather than appearing whole.
+    part, _ = reach(0.4)
+    assert part is not None and part > landed + 5, \
+        f"a feed at head 0.4 should still be out at the rim, got {part:.2f}"
