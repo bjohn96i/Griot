@@ -282,3 +282,76 @@ def test_the_rendered_core_grows_while_the_vault_is_busy(tmp_path):
     assert w._core == 0.0
     assert busy > core_cells() * 1.25, \
         f"the core must be visibly larger while working: {busy} vs {core_cells()}"
+
+
+# --- the rescan is off the event loop ---------------------------------------
+
+def test_the_rescan_is_handed_to_a_worker_rather_than_run_inline(tmp_path):
+    """A full vault walk is 60ms against an 83ms frame at 12fps, so running
+    it on the event loop stalled the whole status app — not just the
+    reactor — every five seconds for the entire session."""
+    w = widget(tmp_path)
+    w.tick(now=0.0)
+    dispatched = []
+    w._dispatch_scan = lambda: (dispatched.append(1), True)[1]
+
+    key = born(w, "newcomer")[0]
+    w.tick(now=6.0)
+
+    assert dispatched == [1], "the rescan has to go out to a worker"
+    assert key not in w.watcher.graph.by_path, \
+        "and tick() must not have walked the vault itself while waiting"
+
+
+def test_only_one_rescan_is_in_flight_at_a_time(tmp_path):
+    w = widget(tmp_path)
+    w.tick(now=0.0)
+    dispatched = []
+    w._dispatch_scan = lambda: (dispatched.append(1), True)[1]   # never answers
+    for i in range(6, 40):
+        w.tick(now=float(i))
+    assert dispatched == [1], "a slow scan must not pile up behind itself"
+
+
+def test_the_worker_body_touches_nothing_before_handing_the_graph_back(tmp_path):
+    """Everything the worker does runs off the event loop, so the graph swap
+    itself has to happen on the way back in — otherwise a frame can be drawn
+    from two different graphs at once."""
+    w = widget(tmp_path)
+    w.tick(now=0.0)
+    before = w.watcher.graph
+    handed = []
+    w._marshal = lambda fn, *args: handed.append((fn, args))
+
+    key = born(w, "newcomer")[0]
+    w._scan_in_thread()
+
+    assert w.watcher.graph is before, "the worker must not swap the graph itself"
+    (fn, (fresh,)) = handed[0]
+    assert w.pulses.graph is not fresh, "nor rebuild the pulses off the event loop"
+    assert fn == w._adopt
+    assert key in fresh.by_path, "but it must have found the new note"
+
+    fn(fresh)                                  # ...as the event loop then would
+    assert w.watcher.graph is fresh
+    assert float(w.pulses.energy[fresh.by_path[key]]) >= BIRTH_AMPLITUDE
+
+
+def test_a_deleted_note_realigns_the_graph_the_rings_and_the_pulses(tmp_path):
+    """Deletions and renames produce no births, so the rebuild used to be
+    skipped for them — leaving self.rings and self.pulses sized and ordered
+    for a vault that no longer existed."""
+    w = widget(tmp_path)
+    w.tick(now=0.0)
+    notes = w.watcher.vault_path / "Notes"
+    (notes / "loner.md").write_text("nothing links here")
+    w.tick(now=6.0)                            # a birth: n goes up by one
+    assert w.pulses.graph is w.watcher.graph
+
+    (notes / "loner.md").unlink()
+    w.tick(now=12.0)                           # a death: no births at all
+
+    assert len(w.rings) == w.watcher.graph.n
+    assert w.pulses.energy.shape[0] == w.watcher.graph.n
+    assert w.pulses.graph is w.watcher.graph, \
+        "the pulses must be rebuilt against the graph actually being drawn"
