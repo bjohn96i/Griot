@@ -13,7 +13,6 @@ from pathlib import Path
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "griot" / "brain"
 SPOOL_FILE = CACHE_DIR / "events"
 PARAMS_FILE = CACHE_DIR / "params"
-PID_FILE = CACHE_DIR / "pid"
 GRAPH_CACHE = CACHE_DIR / "graph.json"
 
 DEFAULTS: dict[str, object] = {

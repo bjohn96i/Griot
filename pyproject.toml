@@ -10,7 +10,6 @@ dependencies = [
     # macOS-only; elsewhere griot.sound falls back to afplay, which seams.
     'pyobjc-framework-AVFoundation>=10.0 ; sys_platform == "darwin"',
     "numpy>=2.0",
-    "pillow>=10.0",
 ]
 
 [project.scripts]
