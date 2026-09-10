@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from collections import Counter
 
 from .graph import Graph
@@ -18,18 +19,44 @@ RING_RADII = (16.0, 24.0, 32.0, 40.0)
 TWO_PI = 2.0 * math.pi
 
 
-def _folder(path: str | None) -> str:
-    """Top-level folder under the vault, or "" for a phantom or a root note."""
-    if not path:
+def _vault_root(paths: list[str | None]) -> str:
+    """The common ancestor directory of every real note, used so `_folder`
+    can read a note's *top-level* folder rather than its immediate parent.
+
+    Built from `dirname(path)`, not `path` itself, so a vault with a single
+    real note does not make that note's own directory look like the root.
+    """
+    dirs = [os.path.dirname(p) for p in paths if p]
+    if not dirs:
         return ""
-    parts = [p for p in path.split("/") if p]
-    return parts[-2] if len(parts) >= 2 else ""
+    try:
+        return os.path.commonpath(dirs)
+    except ValueError:
+        return ""
+
+
+def _folder(path: str | None, root: str) -> str:
+    """Top-level folder under `root`, or "" for a phantom or a root-level note."""
+    if not path or not root:
+        return ""
+    try:
+        rel = os.path.relpath(path, root)
+    except ValueError:
+        return ""
+    parts = [p for p in rel.split(os.sep) if p not in ("", ".", "..")]
+    return parts[0] if len(parts) >= 2 else ""
 
 
 def ring_of(graph: Graph) -> list[int]:
     """Node index -> ring index. Bigger folders go further out, where there
     is more circumference; phantoms and root notes go innermost."""
-    folders = [_folder(p) for p in graph.paths]
+    root = _vault_root(graph.paths)
+    folders = [_folder(p, root) for p in graph.paths]
+    if root and not any(folders):
+        # Every real note shares one top folder, so `commonpath` swallowed
+        # the level we actually want. Back off once — no further retries.
+        root = os.path.dirname(root)
+        folders = [_folder(p, root) for p in graph.paths]
     sizes = Counter(f for f in folders if f)
     ranked = [f for f, _ in sizes.most_common()]
     outermost = len(RING_RADII) - 1
