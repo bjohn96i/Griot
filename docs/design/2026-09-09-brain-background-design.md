@@ -1,7 +1,11 @@
 # Griot Brain — Design Spec
 
 **Date:** 2026-09-09
-**Status:** Approved by Johnathan (2026-09-09)
+**Status:** SUPERSEDED 2026-09-09 by `2026-09-09-reactor-design.md`.
+The kitty implementation was built, tested and run, then removed: it ties the
+workstation to one terminal, and that cost showed up immediately as image
+pasting into Claude Code breaking. Kept for the measurements and the
+feasibility evidence, which remain accurate. Do not build from it.
 **Project:** `~/Documents/Personal/Griot`
 
 ## Purpose
