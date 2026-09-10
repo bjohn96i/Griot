@@ -114,14 +114,26 @@ def test_spin_rotates_every_node_by_the_same_angle():
 
 
 def test_the_core_is_drawn_at_the_centre():
+    """The middle row alone does not discriminate: the housing ring and its
+    spokes cross it too, so that assertion held even with the core deleted.
+    HOUSING_RADIUS is 10 and CORE_RADIUS is 6, so the disc of radius < 5
+    around the centre can only ever contain core dots."""
     from griot.brain.pulse import Pulses
-    from griot.brain.reactor import scene
+    from griot.brain.reactor import LEVELS, scene
     graph = vault_graph({"A": 20})
     canvas = scene(graph, Pulses(graph), ring_of(graph), cols=43, rows=22,
                    spin=0.0, core_phase=0.0)
-    text = canvas.render(["", "#111111", "#222222", "#333333"]).plain
-    middle = text.split("\n")[len(text.split("\n")) // 2]
-    assert middle.strip(), "the middle row must contain the core"
+    # confirm the colour list covers every level scene() can emit
+    canvas.render(["", "#111111", "#222222", "#333333", "#444444"])
+    levels = set()
+    for row in range(canvas.rows):
+        for col in range(canvas.cols):
+            dx, dy = col * 2 - 43, row * 4 - 44
+            if (dx * dx + dy * dy) ** 0.5 < 5 and canvas._bits[row][col]:
+                levels.add(canvas._level[row][col])
+    assert levels, "the core disc (radius < 5 of the centre) must contain lit dots"
+    assert levels == {LEVELS - 2}, \
+        f"every dot within the core disc should be at the core's level, got {levels}"
 
 
 def test_the_interior_is_empty_at_rest_and_busy_during_a_cascade():
