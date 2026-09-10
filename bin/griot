@@ -6,8 +6,6 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 SESSION="griot"
 CENTER="griot-center"
-BRAIN_PID_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/griot/brain/pid"
-BRAIN_LOG="${XDG_CACHE_HOME:-$HOME/.cache}/griot/brain/log"
 
 die() { echo "griot: $1" >&2; exit 1; }
 
@@ -24,10 +22,6 @@ command -v icalBuddy >/dev/null || echo "griot: warning — icalBuddy missing (b
 if [[ "${1:-}" == "restart" ]]; then
   tmux kill-session -t "$SESSION" 2>/dev/null || true
   tmux -L griot kill-server 2>/dev/null || true
-  # The brain outlives both tmux servers (it draws into kitty's window
-  # background, not a pane), so it needs its own teardown here.
-  [ -f "$BRAIN_PID_FILE" ] && kill "$(cat "$BRAIN_PID_FILE")" 2>/dev/null || true
-  rm -f "$BRAIN_PID_FILE"
 fi
 
 # Re-attach if already running.
@@ -101,18 +95,6 @@ tmux set-hook -t "$SESSION" client-attached \
 # Left: tasks app.  Right: status app.
 tmux send-keys -t "$SESSION:main.0" "uv run --project '$HERE' griot-tasks" C-m
 tmux send-keys -t "$SESSION:main.2" "uv run --project '$HERE' griot-status" C-m
-
-# The brain is a detached animator, not a pane: it draws into kitty's window
-# background. It exits 0 by itself when disabled or when there is no kitty.
-# Guarded against a second animator starting against the same kitty socket if
-# the tmux server died some way other than `griot restart` (which already
-# tears the brain down via BRAIN_PID_FILE above).
-mkdir -p "$(dirname "$BRAIN_LOG")"
-if [ -f "$BRAIN_PID_FILE" ] && kill -0 "$(cat "$BRAIN_PID_FILE")" 2>/dev/null; then
-  : "brain already running"
-else
-  (uv run --project "$HERE" griot-brain >>"$BRAIN_LOG" 2>&1 &) || true
-fi
 
 # Center: nested tmux on its own socket with the tab-bar config.
 # The set-option is chained onto the SAME tmux invocation (via \;) so it is

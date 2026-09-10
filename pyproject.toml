@@ -17,7 +17,6 @@ dependencies = [
 griot-tasks = "griot.tasks.app:main"
 griot-status = "griot.status.app:main"
 griot-theme = "griot.theme:main"
-griot-brain = "griot.brain.app:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]

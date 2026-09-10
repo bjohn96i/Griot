@@ -62,7 +62,6 @@ Linux would require rewriting the right-pane data sources in
 | `fzf` | the ⌥x command palette | `brew install fzf` |
 | `icalBuddy` | calendar widget (optional — widget stays empty without it) | `brew install ical-buddy` |
 | Node / `npx` | the Claude usage widget (`ccusage`) | comes with Node |
-| `kitty` | the brain background (optional — feature stays off without it) | `brew install --cask kitty` |
 
 **Network:** the weather widget calls Open-Meteo; the usage widget downloads `ccusage`
 via `npx` on first run. Both degrade to `?` offline.
@@ -206,52 +205,32 @@ re-attaches to the already-running session, which still shows the old build.
 - `c`-loaded task sessions get the vault **and** `repos_dir` via `--add-dir`, so Claude can read the note and edit code.
 - Notes render with `glow` in the Vibranium style (`q` closes the pager tab).
 
-### Brain background (kitty only)
+### The reactor
 
-The vault's link graph, live behind the center pane: nodes floating, electrons
-riding the connections, and a bloom on whatever note Claude is reading or
-writing. Off by default.
+The bottom of the right pane holds an arc-reactor map of the vault. Notes are
+points on concentric rings — the rings are your top-level folders, sized so
+the biggest folder gets the outermost ring where there is the most room — and
+the glowing core is the vault itself.
 
-It works because kitty draws its window background image *below* cell
-backgrounds, and Claude Code paints an explicit background on only ~11 cells of
-a full screen — so the graph shows through nearly the whole pane. The tasks and
-status panes mask it automatically because `griot.tcss` sets
-`Screen { background: $bg }`, and Textual therefore paints every cell opaque.
+It reacts to Claude's work. A read lights that note's point and sends an arc
+inward to the core; a write is heavier; and a brand-new note gets its own
+moment, igniting at the rim before settling permanently onto its ring. A
+note's position is a hash of its path, so it never moves between sessions and
+you come to recognise where things live.
 
-**Requires kitty.** Ghostty 1.3.1 renders the same background image but cannot
-animate it: it has no IPC, `SIGUSR2` is a no-op, and `SIGUSR1`/`SIGHUP`
-terminate it. kitty's own graphics protocol isn't usable here either — under
-tmux it renders through unicode placeholders that occupy real cells, which
-Claude Code's next repaint destroys. The mechanism that does work is kitty's
-window `background_image`, drawn below cell backgrounds.
-
-In `kitty.conf`:
-
-```
-allow_remote_control     socket-only
-listen_on                unix:/tmp/kitty-griot
-background_image_layout  scaled
-background_tint          0.85
-```
-
-`allow_remote_control` must be `socket-only` rather than the default `no`.
-Plain `yes` also works — both were tested against kitty 0.48.2 — but
-`socket-only` additionally refuses remote-control commands arriving over the
-terminal's own escape channel, so a program running inside a pane cannot
-drive your terminal. `background_tint` is the dial if the graph ever fights
-the text.
-
-Then in `~/.config/griot/config.toml`:
+Off by default. In `~/.config/griot/config.toml`:
 
 ```toml
 [brain]
 enabled = true
 ```
 
-Check it with `uv run griot-brain --selftest`. The launcher redirects the
-detached animator's stdout/stderr to `~/.cache/griot/brain/log` (or
-`$XDG_CACHE_HOME/griot/brain/log`), which is where to look if the background
-never appears.
+Activity comes from `bin/griot-disk`, the PostToolUse hook that already drives
+the drive sounds, so nothing extra needs installing. New notes are found by
+rescanning the vault every few seconds.
+
+No terminal-specific support is required — it is braille and colour, like the
+heartbeat animation above it.
 
 **Right pane — live status** (each widget refreshes independently and degrades to `?`/`◌` on failure)
 - **Heartbeat animation** (`[animation]`: beads, scope, bars, glyphs) — excites on any state change or an imminent meeting.

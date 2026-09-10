@@ -337,3 +337,17 @@ def test_the_reactor_core_is_the_brightest_token_in_every_theme():
         colours = spec["colors"]
         assert luminance(colours["reactor_core"]) > luminance(colours["accent_bright"]), name
         assert luminance(colours["reactor_core"]) > luminance(colours["reactor"]), name
+
+
+def test_no_hex_literals_outside_theme_module():
+    """Colours come from theme tokens; no other module under src/griot may
+    carry its own hex literal. Relocated and widened from the deleted
+    tests/test_brain_render.py, which only scanned brain/render.py — once
+    that file (and the kitty pipeline around it) is gone, this repo-wide
+    scan is the only thing enforcing the constraint at all."""
+    for path in sorted((theme.REPO_ROOT / "src" / "griot").rglob("*.py")):
+        if path == theme.REPO_ROOT / "src" / "griot" / "theme.py":
+            continue
+        source = path.read_text()
+        assert not re.search(r"#[0-9A-Fa-f]{6}", source), \
+            f"{path.relative_to(theme.REPO_ROOT)} carries a hex literal outside theme.py"
