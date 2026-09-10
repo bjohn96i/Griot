@@ -35,6 +35,22 @@ def test_a_cell_takes_the_brightest_level_plotted_in_it():
         "colour is per cell, so the cell must take the brighter of the two"
 
 
+def test_a_dimmer_dot_landing_afterwards_does_not_take_the_cell():
+    """The ascending case above cannot tell "brightest wins" from "last
+    wins" — plotting 1 then 3 gives 3 either way, and mutating the guard to
+    `if level >= 0` leaves it green. Only the descending order discriminates.
+
+    It matters concretely: scene() plots arcs at level 3 and then the notes
+    at level 1, so a last-wins canvas would let resting notes punch holes
+    through a travelling arc."""
+    c = Canvas(1, 1)
+    c.plot(0, 0, 3)
+    c.plot(1, 0, 1)
+    text = c.render(["", "#111111", "#222222", "#333333"])
+    assert str(text.spans[0].style).lower().endswith("333333"), \
+        "a level-1 dot must not dim a cell an arc already claimed at level 3"
+
+
 def test_dots_outside_the_canvas_are_dropped_not_wrapped():
     c = Canvas(2, 1)
     for x, y in ((-1, 0), (0, -1), (99, 0), (0, 99)):
