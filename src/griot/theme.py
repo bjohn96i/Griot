@@ -30,6 +30,7 @@ from pathlib import Path
 #   select  the highlighted row
 TOKENS = ("bg", "panel", "chrome", "chrome_text", "border", "outline", "select",
           "text", "muted", "accent", "accent_bright", "secondary", "electron",
+          "reactor", "reactor_core",
           "ok", "err")
 
 THEMES: dict[str, dict] = {
@@ -43,6 +44,7 @@ THEMES: dict[str, dict] = {
             "text": "#C7D3E8", "muted": "#8FA3C7",
             "accent": "#E3B341", "accent_bright": "#F0C75E", "secondary": "#4EC97B",
             "electron": "#BFD8FF",
+            "reactor": "#7FD4FF", "reactor_core": "#EAF6FF",
             "ok": "#4EC97B", "err": "#E05561",
         },
         "animation": {"style": "beads"},
@@ -58,6 +60,7 @@ THEMES: dict[str, dict] = {
             "text": "#D8D4E0", "muted": "#7A7684",
             "accent": "#FF71CE", "accent_bright": "#FFA6E1", "secondary": "#01CDFE",
             "electron": "#D6ECFF",
+            "reactor": "#01CDFE", "reactor_core": "#F2FBFF",
             "ok": "#05FFA1", "err": "#FF3864",
         },
         "animation": {"style": "scope", "height": 2},
@@ -78,6 +81,7 @@ THEMES: dict[str, dict] = {
             "text": "#FFB000", "muted": "#C9922F",
             "accent": "#FFD07A", "accent_bright": "#FFF3D0", "secondary": "#E06A2C",
             "electron": "#BFD8FF",
+            "reactor": "#FFC061", "reactor_core": "#FFFEF8",
             "ok": "#FFCF6B", "err": "#FF3B14",
         },
         "animation": {"style": "glyphs", "glyph_set": "hex"},

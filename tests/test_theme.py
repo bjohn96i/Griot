@@ -324,3 +324,16 @@ def test_tmux_flag_honours_an_explicit_name(capsys):
     border, accent = capsys.readouterr().out.split()
     assert border == "#1E3A5F" and accent == "#E3B341"
     theme.activate("vibranium-night")
+
+
+def test_the_reactor_core_is_the_brightest_token_in_every_theme():
+    """The core is the focal point of the widget; if a theme's core is dimmer
+    than its own accent, the reactor reads as a hole rather than a source."""
+    def luminance(hex_colour: str) -> float:
+        r, g, b = (int(hex_colour.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    for name, spec in theme.THEMES.items():
+        colours = spec["colors"]
+        assert luminance(colours["reactor_core"]) > luminance(colours["accent_bright"]), name
+        assert luminance(colours["reactor_core"]) > luminance(colours["reactor"]), name
