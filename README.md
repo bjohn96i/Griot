@@ -205,6 +205,33 @@ re-attaches to the already-running session, which still shows the old build.
 - `c`-loaded task sessions get the vault **and** `repos_dir` via `--add-dir`, so Claude can read the note and edit code.
 - Notes render with `glow` in the Vibranium style (`q` closes the pager tab).
 
+### The reactor
+
+The bottom of the right pane holds an arc-reactor map of the vault. Notes are
+points on concentric rings — the rings are your top-level folders, sized so
+the biggest folder gets the outermost ring where there is the most room — and
+the glowing core is the vault itself.
+
+It reacts to Claude's work. A read lights that note's point and sends an arc
+inward to the core; a write is heavier; and a brand-new note gets its own
+moment, igniting at the rim before settling permanently onto its ring. A
+note's position is a hash of its path, so it never moves between sessions and
+you come to recognise where things live.
+
+Off by default. In `~/.config/griot/config.toml`:
+
+```toml
+[brain]
+enabled = true
+```
+
+Activity comes from `bin/griot-disk`, the PostToolUse hook that already drives
+the drive sounds, so nothing extra needs installing. New notes are found by
+rescanning the vault every few seconds.
+
+No terminal-specific support is required — it is braille and colour, like the
+heartbeat animation above it.
+
 **Right pane — live status** (each widget refreshes independently and degrades to `?`/`◌` on failure)
 - **Heartbeat animation** (`[animation]`: beads, scope, bars, glyphs) — excites on any state change or an imminent meeting.
 - **Clock**, **weather** (Open-Meteo), **calendar** (next events via `icalBuddy`).

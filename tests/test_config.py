@@ -99,3 +99,21 @@ def test_theme_and_animation_sections(tmp_path):
     assert cfg.theme_name == "dataterm"
     assert cfg.theme_colors == {"accent": "#ABCDEF"}
     assert cfg.animation == {"style": "scope", "speed": 0.08, "height": 2, "wavelength": 12}
+
+
+def test_brain_section_is_loaded(tmp_path):
+    from griot.config import load_config
+    p = tmp_path / "config.toml"
+    # [brain] is an unvalidated pass-through dict, so the second key is
+    # only here to prove arbitrary keys survive. It used to be `fps_active`,
+    # a setting the kitty pipeline took with it — a ghost name in a fixture
+    # reads as a live dependency.
+    p.write_text('[brain]\nenabled = true\nsomething_else = 12\n')
+    assert load_config(p).brain == {"enabled": True, "something_else": 12}
+
+
+def test_brain_section_defaults_to_empty(tmp_path):
+    from griot.config import load_config
+    p = tmp_path / "config.toml"
+    p.write_text("")
+    assert load_config(p).brain == {}

@@ -20,22 +20,24 @@ set -u
 
 DIR="${XDG_CACHE_HOME:-$HOME/.cache}/griot/sound"
 PARAMS="$DIR/params"
-
-# No params = griot has never installed an engine, so there is no drive to hear.
-[ -f "$PARAMS" ] || exit 0
-# shellcheck disable=SC1090
-. "$PARAMS"
-
-[ "${enabled:-0}" = "1" ] || exit 0
-[ "${clicks:-0}" = "1" ] || exit 0
-[ -e "$DIR/muted" ] && exit 0
-command -v afplay >/dev/null 2>&1 || exit 0
+BRAIN_PARAMS="${XDG_CACHE_HOME:-$HOME/.cache}/griot/brain/params"
 
 kind="${1:-}"
 [ -n "$kind" ] || exit 0
 
+# Read stdin once: both the brain (which wants the path) and `auto` (which
+# classifies a bash command) need it, and a pipe can only be drained once.
+payload=""
+if [ "$kind" = "auto" ] || [ -f "$BRAIN_PARAMS" ]; then
+    # Builtin slurp rather than $(cat): this runs on every tool call and the
+    # fork costs ~8ms. Lines are concatenated without their newlines, which
+    # suits both consumers — the classifier greps and the extractor scans.
+    while IFS= read -r line || [ -n "$line" ]; do
+        payload="$payload$line"
+    done
+fi
+
 if [ "$kind" = "auto" ]; then
-    payload=$(cat 2>/dev/null || true)
     # Write markers win: a command that both cats and redirects is a write.
     # `2>/dev/null` and `>&` are not file writes, so they are excluded.
     if printf '%s' "$payload" | grep -Eq \
@@ -51,6 +53,70 @@ case "$kind" in
     read|write) ;;
     *) exit 0 ;;
 esac
+
+# --- brain spool -------------------------------------------------------
+# Deliberately ahead of every sound gate: muting the drive must not blind
+# the brain. Bash-tool calls carry no file_path and so spool nothing.
+if [ -f "$BRAIN_PARAMS" ]; then
+    brain_enabled=0
+    spool=""
+    # shellcheck disable=SC1090
+    . "$BRAIN_PARAMS"
+    if [ "${brain_enabled:-0}" = "1" ] && [ -n "$spool" ]; then
+        # Pure builtins: this runs on every Claude tool call, and grep+head+sed
+        # cost ~28ms a call in forks alone. Tolerates any spacing around the
+        # colon because we do not control Claude Code's JSON formatting.
+        #
+        # A file_path containing a literal double quote extracts truncated —
+        # inherent without a JSON parser. The corrupt line is dropped later by
+        # events.resolve(), so the effect is a missing pulse, not bad data.
+        file_path=""
+        if [ "${#payload}" -gt 16384 ]; then
+            # Shell expansion is O(n) on the payload; grep is not. Above ~16 KB
+            # the fork is cheaper than the expansion — measured 136ms vs ~20ms
+            # on a 368 KB Write payload.
+            file_path=$(printf '%s' "$payload" \
+                | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 \
+                | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"//; s/"$//')
+        else
+            case "$payload" in
+                *'"file_path"'*)
+                    rest=${payload#*\"file_path\"}
+                    rest=${rest#*:}
+                    while :; do
+                        case "$rest" in
+                            " "*|"	"*) rest=${rest#?} ;;
+                            *) break ;;
+                        esac
+                    done
+                    case "$rest" in
+                        \"*) file_path=${rest#\"}; file_path=${file_path%%\"*} ;;
+                    esac
+                    ;;
+            esac
+        fi
+        if [ -n "$file_path" ]; then
+            spool_dir=${spool%/*}
+            [ -d "$spool_dir" ] || mkdir -p "$spool_dir" 2>/dev/null
+            # Brace group, not a bare `>> "$spool" 2>/dev/null`: when the
+            # redirection target itself fails to open, the shell reports that
+            # before the command's own stderr redirection applies. Claude sees
+            # this hook's stderr on every tool call.
+            { printf '%s %s %s\n' "$(date +%s)" "$kind" "$file_path" >> "$spool"; } 2>/dev/null
+        fi
+    fi
+fi
+
+# --- drive sound -------------------------------------------------------
+# No params = griot has never installed an engine, so there is no drive to hear.
+[ -f "$PARAMS" ] || exit 0
+# shellcheck disable=SC1090
+. "$PARAMS"
+
+[ "${enabled:-0}" = "1" ] || exit 0
+[ "${clicks:-0}" = "1" ] || exit 0
+[ -e "$DIR/muted" ] && exit 0
+command -v afplay >/dev/null 2>&1 || exit 0
 
 # $$ stands in for $RANDOM, which POSIX sh does not have.
 variant=$(( $$ % 3 + 1 ))

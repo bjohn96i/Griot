@@ -40,6 +40,19 @@ def run(cache, kind, payload=None):
     return proc.stdout.strip()
 
 
+def run_raw(cache, kind, raw_payload):
+    """Feed the hook a literal payload string — `run()` goes through
+    json.dumps and so can only ever produce one of the two spacings."""
+    root, _ = cache
+    proc = subprocess.run(
+        [str(HOOK), kind], input=raw_payload, capture_output=True, text=True,
+        env={"HOME": str(root), "PATH": "/usr/bin:/bin",
+             "XDG_CACHE_HOME": str(root), "GRIOT_DISK_DRYRUN": "1"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.strip()
+
+
 def test_the_hook_is_executable():
     assert HOOK.exists(), HOOK
     assert HOOK.stat().st_mode & 0o111, "must be chmod +x for a hook to run it"
@@ -147,6 +160,84 @@ def test_clicks_false_silences_the_hook(cache):
 def test_an_unknown_kind_is_a_no_op(cache):
     root, _ = cache
     assert silent(root, kind="sideways") == (0, "")
+
+
+# ------------------------------------------------------------------- brain ----
+
+@pytest.fixture
+def brain(cache):
+    """A brain params file next to the sound one, with the spool enabled."""
+    root, _ = cache
+    d = root / "griot" / "brain"
+    d.mkdir(parents=True)
+    (d / "params").write_text(f"brain_enabled=1\nspool='{d / 'events'}'\n")
+    return d
+
+
+def test_a_write_is_spooled_with_its_path(cache, brain):
+    run(cache, "write", {"tool_input": {"file_path": "/vault/A.md"}})
+    line = (brain / "events").read_text().strip()
+    ts, kind, path = line.split(" ", 2)
+    assert float(ts) > 0
+    assert kind == "write"
+    assert path == "/vault/A.md"
+
+
+def test_a_read_is_spooled(cache, brain):
+    run(cache, "read", {"tool_input": {"file_path": "/vault/B.md"}})
+    assert " read /vault/B.md" in (brain / "events").read_text()
+
+
+def test_paths_with_spaces_are_spooled_whole(cache, brain):
+    run(cache, "write", {"tool_input": {"file_path": "/vault/My Note.md"}})
+    assert (brain / "events").read_text().strip().endswith(" /vault/My Note.md")
+
+
+def test_the_spool_is_written_even_when_the_drive_is_muted(cache, brain):
+    """The regression the reordering invites: muting the drive must not
+    blind the brain. Two separate features, two separate gates."""
+    root, sound_dir = cache
+    (sound_dir / "muted").touch()
+    run(cache, "write", {"tool_input": {"file_path": "/vault/A.md"}})
+    assert "/vault/A.md" in (brain / "events").read_text()
+
+
+def test_the_spool_is_written_even_when_sound_is_disabled(cache, brain):
+    root, sound_dir = cache
+    (sound_dir / "params").write_text("enabled=0\nclicks=0\nvolume=0.000\n"
+                                      "one_shot_volume=0.000\nversion=v2\n")
+    run(cache, "write", {"tool_input": {"file_path": "/vault/A.md"}})
+    assert "/vault/A.md" in (brain / "events").read_text()
+
+
+def test_nothing_is_spooled_when_the_brain_is_disabled(cache, brain):
+    (brain / "params").write_text(f"brain_enabled=0\nspool='{brain / 'events'}'\n")
+    run(cache, "write", {"tool_input": {"file_path": "/vault/A.md"}})
+    assert not (brain / "events").exists()
+
+
+def test_a_payload_without_a_file_path_spools_nothing(cache, brain):
+    """Bash-tool writes carry no file_path — the drive still clicks, the brain
+    stays still. A deliberate gap, not a bug."""
+    run(cache, "auto", {"tool_input": {"command": "echo hi > /tmp/x"}})
+    assert not (brain / "events").exists()
+
+
+def test_the_hook_still_works_with_no_brain_params(cache):
+    assert run(cache, "write", {"tool_input": {"file_path": "/vault/A.md"}})
+
+
+def test_a_compact_payload_yields_the_path(cache, brain):
+    run_raw(cache, "write", '{"tool_input":{"file_path":"/vault/Compact.md"}}')
+    assert "/vault/Compact.md" in (brain / "events").read_text()
+
+
+def test_a_spaced_payload_yields_the_path(cache, brain):
+    """We do not control Claude Code's JSON formatting, so both spellings
+    must work — a pretty-printed payload would otherwise blind the brain
+    silently, with no error anywhere."""
+    run_raw(cache, "write", '{"tool_input": {"file_path": "/vault/Spaced.md"}}')
+    assert "/vault/Spaced.md" in (brain / "events").read_text()
 
 
 # ------------------------------------------------------------------ params ----

@@ -4,8 +4,9 @@ import pytest
 
 from griot import theme
 
-TOKENS = {"bg", "panel", "chrome", "chrome_text", "border", "outline", "select",
-          "text", "muted", "accent", "accent_bright", "secondary", "ok", "err"}
+# Read from the module rather than kept as a second copy here: the duplicate
+# only ever caught its own staleness when a token was added.
+TOKENS = set(theme.TOKENS)
 
 
 def test_three_named_themes_exist():
@@ -323,3 +324,30 @@ def test_tmux_flag_honours_an_explicit_name(capsys):
     border, accent = capsys.readouterr().out.split()
     assert border == "#1E3A5F" and accent == "#E3B341"
     theme.activate("vibranium-night")
+
+
+def test_the_reactor_core_is_the_brightest_token_in_every_theme():
+    """The core is the focal point of the widget; if a theme's core is dimmer
+    than its own accent, the reactor reads as a hole rather than a source."""
+    def luminance(hex_colour: str) -> float:
+        r, g, b = (int(hex_colour.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    for name, spec in theme.THEMES.items():
+        colours = spec["colors"]
+        assert luminance(colours["reactor_core"]) > luminance(colours["accent_bright"]), name
+        assert luminance(colours["reactor_core"]) > luminance(colours["reactor"]), name
+
+
+def test_no_hex_literals_outside_theme_module():
+    """Colours come from theme tokens; no other module under src/griot may
+    carry its own hex literal. Relocated and widened from the deleted
+    tests/test_brain_render.py, which only scanned brain/render.py — once
+    that file (and the kitty pipeline around it) is gone, this repo-wide
+    scan is the only thing enforcing the constraint at all."""
+    for path in sorted((theme.REPO_ROOT / "src" / "griot").rglob("*.py")):
+        if path == theme.REPO_ROOT / "src" / "griot" / "theme.py":
+            continue
+        source = path.read_text()
+        assert not re.search(r"#[0-9A-Fa-f]{6}", source), \
+            f"{path.relative_to(theme.REPO_ROOT)} carries a hex literal outside theme.py"

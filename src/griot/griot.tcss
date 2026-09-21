@@ -82,6 +82,11 @@ Markdown {
     height: 1fr;
 }
 
+#reactor {
+    height: 22;
+    background: $bg;
+}
+
 OptionList {
     background: $bg;
     border: none;
